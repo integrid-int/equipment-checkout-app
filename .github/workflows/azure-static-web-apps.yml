@@ -32,10 +32,10 @@ jobs:
           cat staticwebapp.config.json
 
       - name: Install frontend dependencies
-        run: npm ci
+        run: npm install
 
       - name: Install API dependencies
-        run: cd api && npm ci
+        run: cd api && npm install
 
       - name: Build frontend
         run: npm run build
