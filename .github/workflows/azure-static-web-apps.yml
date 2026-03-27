@@ -54,6 +54,8 @@ jobs:
           output_location: "dist"
           skip_app_build: true   # we built manually above
           skip_api_build: true
+          api_language: node
+          api_version: '20'
 
   close_pull_request:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
