@@ -1,18 +1,29 @@
 import { NavLink, useNavigate } from "react-router-dom";
-import { useAuth } from "../hooks/useAuth";
+import { useRole } from "../context/RoleContext";
 import { useActiveJob } from "../context/ActiveJobContext";
 
-const tabs = [
-  { to: "/job",    label: "Job",     icon: "🎫" },
-  { to: "/pull",   label: "Pull Kit", icon: "📦" },
-  { to: "/return", label: "Return",  icon: "↩️" },
-  { to: "/stock",  label: "Stock",   icon: "🗄️" },
+interface Tab {
+  to: string;
+  label: string;
+  icon: string;
+  roles: Array<"admin" | "technician" | "receiver">;
+}
+
+const ALL_TABS: Tab[] = [
+  { to: "/job",     label: "Job",      icon: "🎫", roles: ["admin", "technician"] },
+  { to: "/pull",    label: "Pull Kit", icon: "📦", roles: ["admin", "technician"] },
+  { to: "/return",  label: "Return",   icon: "↩️",  roles: ["admin", "technician"] },
+  { to: "/receive", label: "Receive",  icon: "📬", roles: ["admin", "receiver"] },
+  { to: "/stock",   label: "Stock",    icon: "🗄️", roles: ["admin", "technician", "receiver"] },
+  { to: "/admin",   label: "Admin",    icon: "⚙️", roles: ["admin"] },
 ];
 
 export default function NavBar() {
-  const { displayName } = useAuth();
+  const { role, displayName } = useRole();
   const { ticket, pullList } = useActiveJob();
   const navigate = useNavigate();
+
+  const visibleTabs = ALL_TABS.filter((t) => role && t.roles.includes(role as never));
 
   return (
     <>
@@ -29,12 +40,23 @@ export default function NavBar() {
             </button>
           )}
         </div>
-        <span className="text-white/70 text-sm truncate max-w-[140px]">{displayName}</span>
+        <div className="text-right">
+          <p className="text-white/70 text-xs truncate max-w-[140px]">{displayName}</p>
+          {role && (
+            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${
+              role === "admin"      ? "bg-purple-500/40 text-purple-100" :
+              role === "technician" ? "bg-blue-500/40 text-blue-100" :
+                                      "bg-emerald-500/40 text-emerald-100"
+            }`}>
+              {role}
+            </span>
+          )}
+        </div>
       </header>
 
       {/* Bottom tab bar */}
       <nav className="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 pb-safe-bottom z-40 flex">
-        {tabs.map(({ to, label, icon }) => (
+        {visibleTabs.map(({ to, label, icon }) => (
           <NavLink
             key={to}
             to={to}
@@ -46,7 +68,6 @@ export default function NavBar() {
           >
             <span className="text-xl leading-none">{icon}</span>
             {label}
-            {/* Pull list badge */}
             {to === "/pull" && pullList.length > 0 && (
               <span className="absolute top-1 right-[calc(50%-18px)] bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
                 {pullList.length}

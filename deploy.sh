@@ -65,6 +65,11 @@ read -rp "  Status ID In Use     [2]: " HALO_STATUS_IN_USE
 HALO_STATUS_IN_USE="${HALO_STATUS_IN_USE:-2}"
 
 echo ""
+echo -e "${BOLD}Bootstrap Admins${NC}"
+read -rp "  Admin email(s) — comma separated: " ADMIN_EMAILS
+[[ -z "$ADMIN_EMAILS" ]] && die "At least one admin email is required"
+
+echo ""
 echo -e "${BOLD}GitHub PAT${NC} (needs 'repo' scope — used to wire up Actions)"
 read -rsp "  GitHub PAT:          " GITHUB_PAT; echo
 [[ -z "$GITHUB_PAT" ]] && die "GitHub PAT is required"
@@ -93,8 +98,7 @@ DEPLOY_OUTPUT=$(az deployment group create \
       entraClientSecret="$ENTRA_CLIENT_SECRET" \
       haloClientId="$HALO_CLIENT_ID" \
       haloClientSecret="$HALO_CLIENT_SECRET" \
-      haloStatusAvailable="$HALO_STATUS_AVAILABLE" \
-      haloStatusInUse="$HALO_STATUS_IN_USE" \
+      adminEmails="$ADMIN_EMAILS" \
   --output json)
 
 SWA_URL=$(echo "$DEPLOY_OUTPUT" | jq -r '.properties.outputs.swaUrl.value')

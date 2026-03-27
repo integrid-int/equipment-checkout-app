@@ -2,7 +2,7 @@
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "metadata": {
-    "description": "Equipment Checkout PWA — Azure Static Web App with Entra auth and Halo PSA integration"
+    "description": "Deployment Kit PWA — Azure Static Web App with Entra auth, Halo PSA integration, and role-based access"
   },
   "parameters": {
     "siteName": {
@@ -18,7 +18,7 @@
         "centralus", "eastus2", "eastasia", "westeurope",
         "westus2", "southcentralus", "eastus", "northeurope"
       ],
-      "metadata": { "description": "Azure region for the Static Web App" }
+      "metadata": { "description": "Azure region for the Static Web App and Storage Account" }
     },
     "sku": {
       "type": "string",
@@ -37,11 +37,11 @@
     },
     "repositoryToken": {
       "type": "securestring",
-      "metadata": { "description": "GitHub Personal Access Token with repo scope (used to set up the Actions workflow)" }
+      "metadata": { "description": "GitHub Personal Access Token with repo scope" }
     },
     "entraTenantId": {
       "type": "string",
-      "metadata": { "description": "Azure AD / Entra tenant ID (GUID from portal.azure.com)" }
+      "metadata": { "description": "Azure AD / Entra tenant ID" }
     },
     "entraClientId": {
       "type": "string",
@@ -59,21 +59,37 @@
       "type": "securestring",
       "metadata": { "description": "Halo PSA API client secret" }
     },
-    "haloStatusAvailable": {
+    "adminEmails": {
       "type": "string",
-      "defaultValue": "1",
-      "metadata": { "description": "Halo asset status ID for 'Available' (Admin → Assets → Statuses)" }
-    },
-    "haloStatusInUse": {
-      "type": "string",
-      "defaultValue": "2",
-      "metadata": { "description": "Halo asset status ID for 'In Use / Checked Out'" }
+      "metadata": { "description": "Comma-separated email addresses that are always admins (bootstraps first admin)" }
     }
   },
   "variables": {
-    "issuerUrl": "[concat('https://login.microsoftonline.com/', parameters('entraTenantId'), '/v2.0')]"
+    "issuerUrl": "[concat('https://login.microsoftonline.com/', parameters('entraTenantId'), '/v2.0')]",
+    "storageAccountName": "[concat('kitstorage', uniqueString(resourceGroup().id))]"
   },
   "resources": [
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2023-01-01",
+      "name": "[variables('storageAccountName')]",
+      "location": "[parameters('location')]",
+      "sku": { "name": "Standard_LRS" },
+      "kind": "StorageV2",
+      "properties": {
+        "minimumTlsVersion": "TLS1_2",
+        "allowBlobPublicAccess": false,
+        "supportsHttpsTrafficOnly": true
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/tableServices/tables",
+      "apiVersion": "2023-01-01",
+      "name": "[concat(variables('storageAccountName'), '/default/userroles')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+      ]
+    },
     {
       "type": "Microsoft.Web/staticSites",
       "apiVersion": "2023-01-01",
@@ -102,17 +118,18 @@
       "apiVersion": "2023-01-01",
       "name": "[concat(parameters('siteName'), '/appsettings')]",
       "dependsOn": [
-        "[resourceId('Microsoft.Web/staticSites', parameters('siteName'))]"
+        "[resourceId('Microsoft.Web/staticSites', parameters('siteName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
       ],
       "properties": {
         "HALO_CLIENT_ID": "[parameters('haloClientId')]",
         "HALO_CLIENT_SECRET": "[parameters('haloClientSecret')]",
-        "HALO_STATUS_AVAILABLE": "[parameters('haloStatusAvailable')]",
-        "HALO_STATUS_IN_USE": "[parameters('haloStatusInUse')]",
         "ENTRA_CLIENT_ID": "[parameters('entraClientId')]",
         "ENTRA_CLIENT_SECRET": "[parameters('entraClientSecret')]",
         "ENTRA_TENANT_ID": "[parameters('entraTenantId')]",
-        "ENTRA_ISSUER_URL": "[variables('issuerUrl')]"
+        "ENTRA_ISSUER_URL": "[variables('issuerUrl')]",
+        "ADMIN_EMAILS": "[parameters('adminEmails')]",
+        "AZURE_STORAGE_CONNECTION_STRING": "[concat('DefaultEndpointsProtocol=https;AccountName=', variables('storageAccountName'), ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-01-01').keys[0].value, ';EndpointSuffix=core.windows.net')]"
       }
     }
   ],
@@ -121,13 +138,13 @@
       "type": "string",
       "value": "[concat('https://', reference(resourceId('Microsoft.Web/staticSites', parameters('siteName'))).defaultHostname)]"
     },
-    "swaDefaultHostname": {
-      "type": "string",
-      "value": "[reference(resourceId('Microsoft.Web/staticSites', parameters('siteName'))).defaultHostname]"
-    },
     "entraRedirectUri": {
       "type": "string",
       "value": "[concat('https://', reference(resourceId('Microsoft.Web/staticSites', parameters('siteName'))).defaultHostname, '/.auth/login/aad/callback')]"
+    },
+    "storageAccountName": {
+      "type": "string",
+      "value": "[variables('storageAccountName')]"
     }
   }
 }
