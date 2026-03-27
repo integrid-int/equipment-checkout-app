@@ -1,0 +1,133 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Equipment Checkout PWA — Azure Static Web App with Entra auth and Halo PSA integration"
+  },
+  "parameters": {
+    "siteName": {
+      "type": "string",
+      "metadata": { "description": "Name for the Static Web App resource (must be globally unique)" },
+      "minLength": 2,
+      "maxLength": 40
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "eastus2",
+      "allowedValues": [
+        "centralus", "eastus2", "eastasia", "westeurope",
+        "westus2", "southcentralus", "eastus", "northeurope"
+      ],
+      "metadata": { "description": "Azure region for the Static Web App" }
+    },
+    "sku": {
+      "type": "string",
+      "defaultValue": "Standard",
+      "allowedValues": ["Free", "Standard"],
+      "metadata": { "description": "Standard required for custom Entra authentication" }
+    },
+    "repositoryUrl": {
+      "type": "string",
+      "metadata": { "description": "GitHub repository URL, e.g. https://github.com/your-org/equipment-checkout-app" }
+    },
+    "repositoryBranch": {
+      "type": "string",
+      "defaultValue": "main",
+      "metadata": { "description": "Branch to deploy from" }
+    },
+    "repositoryToken": {
+      "type": "securestring",
+      "metadata": { "description": "GitHub Personal Access Token with repo scope (used to set up the Actions workflow)" }
+    },
+    "entraTenantId": {
+      "type": "string",
+      "metadata": { "description": "Azure AD / Entra tenant ID (GUID from portal.azure.com)" }
+    },
+    "entraClientId": {
+      "type": "string",
+      "metadata": { "description": "Entra app registration client ID" }
+    },
+    "entraClientSecret": {
+      "type": "securestring",
+      "metadata": { "description": "Entra app registration client secret" }
+    },
+    "haloClientId": {
+      "type": "string",
+      "metadata": { "description": "Halo PSA API client ID (Admin → Integrations → API)" }
+    },
+    "haloClientSecret": {
+      "type": "securestring",
+      "metadata": { "description": "Halo PSA API client secret" }
+    },
+    "haloStatusAvailable": {
+      "type": "string",
+      "defaultValue": "1",
+      "metadata": { "description": "Halo asset status ID for 'Available' (Admin → Assets → Statuses)" }
+    },
+    "haloStatusInUse": {
+      "type": "string",
+      "defaultValue": "2",
+      "metadata": { "description": "Halo asset status ID for 'In Use / Checked Out'" }
+    }
+  },
+  "variables": {
+    "issuerUrl": "[concat('https://login.microsoftonline.com/', parameters('entraTenantId'), '/v2.0')]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Web/staticSites",
+      "apiVersion": "2023-01-01",
+      "name": "[parameters('siteName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "[parameters('sku')]",
+        "tier": "[parameters('sku')]"
+      },
+      "properties": {
+        "repositoryUrl": "[parameters('repositoryUrl')]",
+        "branch": "[parameters('repositoryBranch')]",
+        "repositoryToken": "[parameters('repositoryToken')]",
+        "buildProperties": {
+          "appLocation": "/",
+          "apiLocation": "api",
+          "outputLocation": "dist",
+          "appBuildCommand": "npm run build",
+          "apiBuildCommand": "npm run build"
+        },
+        "enterpriseGradeCdnStatus": "Disabled"
+      }
+    },
+    {
+      "type": "Microsoft.Web/staticSites/config",
+      "apiVersion": "2023-01-01",
+      "name": "[concat(parameters('siteName'), '/appsettings')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/staticSites', parameters('siteName'))]"
+      ],
+      "properties": {
+        "HALO_CLIENT_ID": "[parameters('haloClientId')]",
+        "HALO_CLIENT_SECRET": "[parameters('haloClientSecret')]",
+        "HALO_STATUS_AVAILABLE": "[parameters('haloStatusAvailable')]",
+        "HALO_STATUS_IN_USE": "[parameters('haloStatusInUse')]",
+        "ENTRA_CLIENT_ID": "[parameters('entraClientId')]",
+        "ENTRA_CLIENT_SECRET": "[parameters('entraClientSecret')]",
+        "ENTRA_TENANT_ID": "[parameters('entraTenantId')]",
+        "ENTRA_ISSUER_URL": "[variables('issuerUrl')]"
+      }
+    }
+  ],
+  "outputs": {
+    "swaUrl": {
+      "type": "string",
+      "value": "[concat('https://', reference(resourceId('Microsoft.Web/staticSites', parameters('siteName'))).defaultHostname)]"
+    },
+    "swaDefaultHostname": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Web/staticSites', parameters('siteName'))).defaultHostname]"
+    },
+    "entraRedirectUri": {
+      "type": "string",
+      "value": "[concat('https://', reference(resourceId('Microsoft.Web/staticSites', parameters('siteName'))).defaultHostname, '/.auth/login/aad/callback')]"
+    }
+  }
+}

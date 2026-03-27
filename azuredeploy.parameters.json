@@ -1,0 +1,60 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "siteName": {
+      "value": "equipment-checkout"
+    },
+    "location": {
+      "value": "eastus2"
+    },
+    "sku": {
+      "value": "Standard"
+    },
+    "repositoryUrl": {
+      "value": "https://github.com/YOUR_ORG/equipment-checkout-app"
+    },
+    "repositoryBranch": {
+      "value": "main"
+    },
+    "repositoryToken": {
+      "reference": {
+        "keyVault": {
+          "id": "/subscriptions/YOUR_SUB_ID/resourceGroups/YOUR_RG/providers/Microsoft.KeyVault/vaults/YOUR_VAULT"
+        },
+        "secretName": "github-pat"
+      }
+    },
+    "entraTenantId": {
+      "value": "YOUR_TENANT_ID"
+    },
+    "entraClientId": {
+      "value": "YOUR_ENTRA_CLIENT_ID"
+    },
+    "entraClientSecret": {
+      "reference": {
+        "keyVault": {
+          "id": "/subscriptions/YOUR_SUB_ID/resourceGroups/YOUR_RG/providers/Microsoft.KeyVault/vaults/YOUR_VAULT"
+        },
+        "secretName": "entra-client-secret"
+      }
+    },
+    "haloClientId": {
+      "value": "YOUR_HALO_CLIENT_ID"
+    },
+    "haloClientSecret": {
+      "reference": {
+        "keyVault": {
+          "id": "/subscriptions/YOUR_SUB_ID/resourceGroups/YOUR_RG/providers/Microsoft.KeyVault/vaults/YOUR_VAULT"
+        },
+        "secretName": "halo-client-secret"
+      }
+    },
+    "haloStatusAvailable": {
+      "value": "1"
+    },
+    "haloStatusInUse": {
+      "value": "2"
+    }
+  }
+}

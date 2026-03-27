@@ -1,0 +1,22 @@
+{
+  "name": "equipment-checkout-api",
+  "version": "1.0.0",
+  "description": "Azure Functions API proxy for Halo PSA",
+  "main": "dist/{**/,}*.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "start": "func start"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.3.0",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.2",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
