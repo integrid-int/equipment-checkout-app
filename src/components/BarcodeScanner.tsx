@@ -41,7 +41,8 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
       .catch((err) => setError(`Camera access denied: ${err.message}`));
 
     return () => {
-      readerRef.current?.stopContinuousDecode();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+(readerRef.current as any)?.reset?.();
     };
   }, []);
 
@@ -51,7 +52,8 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
     const reader = readerRef.current;
     if (!reader) return;
 
-    reader.stopContinuousDecode();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (reader as any)?.reset?.();
 
     reader
       .decodeFromVideoDevice(selectedCameraId, videoRef.current, (result, err) => {
