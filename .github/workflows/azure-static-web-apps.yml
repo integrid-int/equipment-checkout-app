@@ -34,14 +34,8 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
-      - name: Install API dependencies
-        run: cd api && npm install
-
       - name: Build frontend
         run: npm run build
-
-      - name: Build API
-        run: cd api && npm run build
 
       - name: Deploy to Azure Static Web Apps
         uses: Azure/static-web-apps-deploy@v1
@@ -52,10 +46,7 @@ jobs:
           app_location: "/"
           api_location: "api"
           output_location: "dist"
-          skip_app_build: true   # we built manually above
-          skip_api_build: true
-          api_language: node
-          api_version: '20'
+          skip_app_build: true   # frontend built manually above; Oryx builds the API
 
   close_pull_request:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
