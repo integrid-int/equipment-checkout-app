@@ -1,164 +1,161 @@
-# Equipment Checkout — Setup Guide
+# Deployment Kit App — Setup Guide
 
-iPad/iPhone-compatible PWA for equipment room checkout via Halo PSA.
+iPad/iPhone-compatible PWA for deployment kit management via Halo PSA.
+Technicians pull inventory against jobs, receivers receive against POs, admins manage roles.
 
 ---
 
-## One-Click Deploy to Azure
+## Recommended: Automated PowerShell Setup
 
-> Push this repo to GitHub first, then click the button below.
+`setup.ps1` handles everything except the two Halo PSA manual steps below.
+**Total time: ~10 minutes.**
+
+### Before you run the script
+
+Complete these two steps in Halo PSA — they cannot be automated:
+
+#### 1. Create a Halo PSA API Client
+
+1. Log into `integrid.halopsa.com` as an admin
+2. Go to **Admin → Integrations → API**
+3. Click **New Application** and set:
+   - **Name:** `Deployment Kit App`
+   - **Authentication Method:** Client Credentials
+   - **Scope:** `all`
+4. Save — copy the **Client ID** and **Client Secret**
+
+#### 2. Add Custom Fields to Item Type
+
+Go to **Admin → Items → Item Types** → select your item type → **Custom Fields → Add Field**:
+
+| Field Name       | Type      | Display Name    |
+|------------------|-----------|-----------------|
+| `checkout_to`    | Text      | Checked Out To  |
+| `checkout_by`    | Text      | Checked Out By  |
+| `checkout_date`  | Date/Time | Checkout Date   |
+| `checkout_notes` | Text      | Checkout Notes  |
+
+Also note your Item **status IDs** from **Admin → Items → Statuses** (hover each status — the ID appears in the URL).
+
+---
+
+### Run the script
+
+Open **PowerShell 7+** as your normal user (not Administrator) in the repo folder:
+
+```powershell
+.\setup.ps1
+```
+
+Or with custom resource names:
+
+```powershell
+.\setup.ps1 -ResourceGroup "my-rg" -Location "westus2" -SiteName "my-kit-app"
+```
+
+The script will:
+
+| # | What it does | How |
+|---|-------------|-----|
+| 1 | Install missing PowerShell modules | `Install-Module` from PSGallery |
+| 2 | Install GitHub CLI if missing | `winget install GitHub.cli` |
+| 3 | Sign in to Azure | `Connect-AzAccount` |
+| 4 | Connect to Microsoft Graph | `Connect-MgGraph` |
+| 5 | Create Entra app registration | `New-MgApplication` |
+| 6 | Generate client secret (24 mo) | `Add-MgApplicationPassword` |
+| 7 | Create Azure resource group | `New-AzResourceGroup` |
+| 8 | Deploy ARM template | `New-AzResourceGroupDeployment` |
+| 9 | Patch Entra redirect URI | `Update-MgApplication` |
+| 10 | Retrieve SWA deployment token | `Get-AzStaticWebAppSecret` |
+| 11 | Set GitHub Actions secrets | `gh secret set` |
+| 12 | Trigger first CI/CD deployment | `gh workflow run` |
+| 13 | Save output summary | `setup-output.txt` |
+
+#### What the script prompts for
+
+- Halo Client ID and Client Secret (from step 1 above)
+- Admin email(s) — comma-separated; these users get immediate admin access
+- GitHub PAT with `repo` scope — create at:
+  `github.com → Settings → Developer settings → Personal access tokens → Tokens (classic)`
+- Resource group / region / SWA name — press **Enter** to accept defaults
+
+#### Script prerequisites
+
+The script installs what it can automatically. If auto-install fails, install manually:
+
+- **PowerShell 7+** — [aka.ms/powershell](https://aka.ms/powershell)
+- **Azure CLI** (optional) — [docs.microsoft.com/cli/azure/install-azure-cli](https://docs.microsoft.com/cli/azure/install-azure-cli)
+- **GitHub CLI** — [cli.github.com](https://cli.github.com)
+
+---
+
+### After the script finishes
+
+1. **Wait ~3 minutes** for the GitHub Actions build to complete
+   Monitor at: `https://github.com/integrid-int/equipment-checkout-app/actions`
+
+2. **Open the app URL** printed in the summary (also saved to `setup-output.txt`)
+   Sign in with your Entra / Microsoft 365 account
+
+3. **Assign roles** — go to the **Admin ⚙️** tab and add your team:
+
+   | Role | Who gets it | Access |
+   |------|-------------|--------|
+   | **Admin** | Your email (already set via `ADMIN_EMAILS`) | Everything + role management |
+   | **Technician** | Field techs | Job, Pull Kit, Return, Stock |
+   | **Receiver** | Warehouse / receiving staff | Receive POs, Stock |
+
+4. **iOS kiosk setup** (iPad / iPhone):
+   - Open **Safari** (not Chrome) and navigate to the app URL
+   - Sign in with Entra credentials
+   - Tap **Share → Add to Home Screen**
+   - Name it **"Kit Checkout"** → tap **Add**
+   - The app launches fullscreen with no browser chrome
+
+---
+
+## Alternative: One-Click Deploy to Azure (portal)
+
+If you prefer the Azure portal wizard over PowerShell:
 
 [![Deploy to Azure](https://aka.ms/deploytoazure)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fintegrid-int%2Fequipment-checkout-app%2Fmain%2Fazuredeploy.json)
 
-The portal wizard will prompt for all required values (Halo credentials, Entra IDs, GitHub PAT) and provision everything in one shot.
+The portal collects all parameters and provisions the infrastructure, but you will need to complete steps 5–7 manually afterward:
+
+1. Copy the `entraRedirectUri` from the deployment **Outputs** tab
+2. Add it to your Entra app registration under **Authentication → Redirect URIs**
+3. Add GitHub Actions secrets manually:
+
+   | Secret name | Value |
+   |-------------|-------|
+   | `AZURE_STATIC_WEB_APPS_API_TOKEN` | Run: `az staticwebapp secrets list --name <siteName> --resource-group <rg> --query properties.apiKey -o tsv` |
+   | `ENTRA_TENANT_ID` | Your Azure AD Directory (tenant) ID |
+
+4. Push to `main` or trigger the workflow manually in GitHub Actions
 
 ---
 
-## Or: One-Command CLI Deploy
-
-**Mac/Linux:**
-```bash
-./deploy.sh
-```
-
-**Windows (PowerShell):**
-```powershell
-.\deploy.ps1
-```
-
-Both scripts interactively prompt for credentials, create the resource group, deploy the ARM template, and automatically set the required GitHub Actions secrets.
-
----
-
-## Prerequisites (for CLI deploy)
-
-- Node 18+
-- Azure CLI (`az login`)
-- `jq` — `brew install jq` (Mac) or download from https://jqlang.github.io/jq/
-- GitHub CLI (`gh`) — optional, for auto-setting Actions secrets
-- Azure Static Web Apps CLI: `npm i -g @azure/static-web-apps-cli` (local dev only)
-- Azure Functions Core Tools v4: `npm i -g azure-functions-core-tools@4` (local dev only)
-
----
-
-## 1. Halo PSA — Create API Client
-
-1. In Halo: **Admin → Integrations → API**
-2. Create a new application with **Client Credentials** grant
-3. Grant scope: `all` (or at minimum `read:assets write:assets write:actions`)
-4. Copy **Client ID** and **Client Secret** → add to `.env.local` and Azure SWA app settings
-
-### Custom Fields on Assets
-
-Add these custom fields to your Asset type in Halo (**Admin → Assets → Custom Fields**):
-
-| Field Name        | Type   | Display Name     |
-|-------------------|--------|------------------|
-| `checkout_to`     | Text   | Checked Out To   |
-| `checkout_by`     | Text   | Checked Out By   |
-| `checkout_date`   | Date   | Checkout Date    |
-| `checkout_notes`  | Text   | Checkout Notes   |
-
-### Asset Status IDs
-
-Find your "Available" and "In Use" status IDs in **Admin → Assets → Statuses**.
-Update `HALO_STATUS_AVAILABLE` and `HALO_STATUS_IN_USE` in your env vars.
-
----
-
-## 2. Azure Entra — Register App
-
-1. Go to [portal.azure.com](https://portal.azure.com) → **Azure Active Directory → App registrations → New**
-2. Name: `Equipment Checkout`
-3. Redirect URI: `https://<your-swa>.azurestaticapps.net/.auth/login/aad/callback`
-4. Add a **Client Secret** under *Certificates & secrets*
-5. Copy **Application (client) ID**, **Directory (tenant) ID**, and secret
-6. Update `staticwebapp.config.json`: replace `YOUR_TENANT_ID`
-
----
-
-## 3. Local Development
+## Local Development
 
 ```bash
 # Install dependencies
 npm install
 cd api && npm install && cd ..
 
-# Create env file
+# Configure credentials
 cp .env.example .env.local
-# Fill in HALO_CLIENT_ID, HALO_CLIENT_SECRET
+# Edit .env.local — fill in HALO_CLIENT_ID and HALO_CLIENT_SECRET
 
-# Start Vite + Functions together
+# Start app + API together (SWA CLI provides mock auth locally)
 swa start http://localhost:5173 --api-location api --run "npm run dev"
 ```
 
-SWA CLI proxies `/.auth/me` with a fake user locally (no real Entra needed for dev).
+Open [http://localhost:4280](http://localhost:4280). No real Entra login is required for local dev — SWA CLI injects a mock user via `/.auth/me`.
 
----
-
-## 4. Deploy to Azure
-
-### Option A — One-Click (portal)
-Click the Deploy to Azure button at the top of this file. The Azure portal wizard collects all parameters and deploys via the ARM template.
-
-After deployment, the portal outputs:
-- **App URL** — your SWA hostname
-- **Entra Redirect URI** — add this to your Entra app registration
-
-Then add two GitHub Actions secrets to your repo (Settings → Secrets → Actions):
-
-| Secret | Value |
-|--------|-------|
-| `AZURE_STATIC_WEB_APPS_API_TOKEN` | From: `az staticwebapp secrets list --name <siteName> --resource-group <rg> --query properties.apiKey -o tsv` |
-| `ENTRA_TENANT_ID` | Your Azure AD tenant ID |
-
-Push to `main` to trigger the first CI/CD deployment.
-
----
-
-### Option B — CLI scripts
-
-```bash
-# Mac/Linux
-./deploy.sh
-
-# Windows PowerShell
-.\deploy.ps1
-```
-
-These scripts handle everything including setting GitHub secrets automatically (requires `gh` CLI).
-
----
-
-### Option C — Manual ARM deployment
-
-```bash
-az group create --name equipment-checkout-rg --location eastus2
-
-az deployment group create \
-  --resource-group equipment-checkout-rg \
-  --template-file azuredeploy.json \
-  --parameters \
-      siteName="equipment-checkout" \
-      repositoryUrl="https://github.com/YOUR_ORG/equipment-checkout-app" \
-      repositoryToken="YOUR_GITHUB_PAT" \
-      entraTenantId="YOUR_TENANT_ID" \
-      entraClientId="YOUR_ENTRA_CLIENT_ID" \
-      entraClientSecret="YOUR_ENTRA_SECRET" \
-      haloClientId="YOUR_HALO_CLIENT_ID" \
-      haloClientSecret="YOUR_HALO_SECRET"
-```
-
----
-
-## 5. iOS Kiosk Setup
-
-1. Open Safari on the iPad/iPhone and navigate to your SWA URL
-2. Sign in with Entra credentials
-3. Tap the **Share** button → **Add to Home Screen**
-4. Name it "Checkout" → **Add**
-
-The app will launch fullscreen with no browser chrome, acting as a dedicated kiosk.
+**Local dev prerequisites:**
+- Node 18+
+- Azure Static Web Apps CLI: `npm i -g @azure/static-web-apps-cli`
+- Azure Functions Core Tools v4: `npm i -g azure-functions-core-tools@4`
 
 ---
 
@@ -167,20 +164,49 @@ The app will launch fullscreen with no browser chrome, acting as a dedicated kio
 ```
 src/
   pages/
-    ScanPage.tsx       ← Scan barcode → look up → checkout/checkin
-    InventoryPage.tsx  ← Browse all assets, search, checkout/checkin
-    CheckedOutPage.tsx ← All currently checked-out items
+    FindJobPage.tsx     ← Find Halo ticket by scan or search
+    PullKitPage.tsx     ← Scan items into a pull list against a job
+    ReturnPage.tsx      ← Scan items back to stock
+    ReceivePage.tsx     ← Receive items against a PO
+    StockPage.tsx       ← Browse current stock levels
+    AdminPage.tsx       ← Manage user role assignments
   components/
-    BarcodeScanner.tsx ← Camera scanner (@zxing/browser)
-    AssetCard.tsx      ← Asset display + action buttons
-    CheckoutModal.tsx  ← Checkout form
-    CheckinModal.tsx   ← Checkin form
-    NavBar.tsx         ← Top header + bottom tab bar
+    BarcodeScanner.tsx  ← Camera scanner (@zxing/browser, iOS Safari compatible)
+    NavBar.tsx          ← Header + role-filtered bottom tabs
+    RoleGuard.tsx       ← Protects routes by role
+  context/
+    ActiveJobContext.tsx ← Active ticket + pull list (persists in sessionStorage)
+    RoleContext.tsx      ← Current user role from /api/me
+
 api/
-  assets/    ← GET /api/assets?search=...
-  checkout/  ← POST /api/checkout
-  checkin/   ← POST /api/checkin
-  checkins/  ← GET /api/checkins (all currently out)
+  tickets/            ← GET  /api/tickets
+  items/              ← GET  /api/items
+  pull/               ← POST /api/pull
+  return/             ← POST /api/return
+  purchase-orders/    ← GET  /api/purchase-orders
+  receive/            ← POST /api/receive
+  me/                 ← GET  /api/me (user + role)
+  admin-roles/        ← GET/POST/DELETE /api/admin-roles
   shared/
-    haloClient.ts ← OAuth2 token + fetch helpers
+    haloClient.ts     ← Halo PSA OAuth2 token + fetch helpers
+    roleStore.ts      ← Azure Table Storage role CRUD
+
+azuredeploy.json      ← ARM template (SWA + Storage Account)
+setup.ps1             ← Automated end-to-end setup script
+deploy.sh             ← Lightweight deploy-only script (Mac/Linux)
+deploy.ps1            ← Lightweight deploy-only script (Windows)
 ```
+
+---
+
+## Roles Reference
+
+| Role | Tabs | Can do |
+|------|------|--------|
+| **Admin** | All tabs | Full access + assign/remove roles |
+| **Technician** | Job, Pull Kit, Return, Stock | Pull deployment kits, return unused items |
+| **Receiver** | Receive, Stock | Receive POs into stock, view inventory |
+
+- Users with no role see a **"pending access"** screen after sign-in
+- Emails listed in `ADMIN_EMAILS` app setting always have admin access regardless of the role table
+- Role changes take effect on the user's next page load
