@@ -77,7 +77,7 @@ Write-Host ""
 Write-Host "  Before running this script you must have already:"
 Write-Host "  1. Created a Halo PSA API client (Admin → Integrations → API)"
 Write-Host "  2. Added custom fields to your Item type in Halo"
-Write-Host "     (checkout_to, checkout_by, checkout_date, checkout_notes)"
+Write-Host "     (CheckoutTo, CheckoutBy, CheckoutDate, CheckoutNotes)"
 Write-Host ""
 $confirm = Read-Host "Have you completed both Halo steps? (y/n)"
 if ($confirm -ne "y") { Fail "Complete the Halo PSA manual steps first, then re-run." }
@@ -111,7 +111,7 @@ if (-not (Assert-Command "gh" "")) {
 }
 
 # Verify gh is authenticated
-$ghStatus = gh auth status 2>&1
+gh auth status 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
     Write-Warn "GitHub CLI not authenticated. Launching gh auth login..."
     gh auth login

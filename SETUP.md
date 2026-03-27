@@ -30,10 +30,10 @@ Go to **Admin → Items → Item Types** → select your item type → **Custom 
 
 | Field Name       | Type      | Display Name    |
 |------------------|-----------|-----------------|
-| `checkout_to`    | Text      | Checked Out To  |
-| `checkout_by`    | Text      | Checked Out By  |
-| `checkout_date`  | Date/Time | Checkout Date   |
-| `checkout_notes` | Text      | Checkout Notes  |
+| `CheckoutTo`     | Text      | Checked Out To  |
+| `CheckoutBy`     | Text      | Checked Out By  |
+| `CheckoutDate`   | Date/Time | Checkout Date   |
+| `CheckoutNotes`  | Text      | Checkout Notes  |
 
 Also note your Item **status IDs** from **Admin → Items → Statuses** (hover each status — the ID appears in the URL).
 
