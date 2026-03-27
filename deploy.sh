@@ -36,9 +36,6 @@ SITE_NAME="${SITE_NAME:-equipment-checkout}"
 read -rp "  GitHub repo URL      (e.g. https://github.com/org/repo): " REPO_URL
 [[ -z "$REPO_URL" ]] && die "Repository URL is required"
 
-read -rp "  GitHub branch        [main]:                   " BRANCH
-BRANCH="${BRANCH:-main}"
-
 echo ""
 echo -e "${BOLD}Entra / Azure AD${NC}"
 read -rp "  Tenant ID:           " TENANT_ID
@@ -70,10 +67,6 @@ read -rp "  Admin email(s) — comma separated: " ADMIN_EMAILS
 [[ -z "$ADMIN_EMAILS" ]] && die "At least one admin email is required"
 
 echo ""
-echo -e "${BOLD}GitHub PAT${NC} (needs 'repo' scope — used to wire up Actions)"
-read -rsp "  GitHub PAT:          " GITHUB_PAT; echo
-[[ -z "$GITHUB_PAT" ]] && die "GitHub PAT is required"
-
 # ── Resource Group ────────────────────────────────────────────────────────────
 header "Creating resource group: $RG"
 az group create \
@@ -90,9 +83,6 @@ DEPLOY_OUTPUT=$(az deployment group create \
   --parameters \
       siteName="$SITE_NAME" \
       location="$LOCATION" \
-      repositoryUrl="$REPO_URL" \
-      repositoryBranch="$BRANCH" \
-      repositoryToken="$GITHUB_PAT" \
       entraTenantId="$TENANT_ID" \
       entraClientId="$ENTRA_CLIENT_ID" \
       entraClientSecret="$ENTRA_CLIENT_SECRET" \

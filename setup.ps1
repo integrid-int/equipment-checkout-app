@@ -287,11 +287,6 @@ if ($rg) {
 
 Write-Step 8 "Deploying ARM template (this takes ~2 minutes)"
 
-Write-Info "A GitHub PAT (repo scope) is needed to wire up GitHub Actions."
-Write-Info "Go to: github.com → Settings → Developer settings → Personal access tokens → Tokens (classic)"
-$GithubPat = Read-SecureInput "    GitHub PAT (repo scope)"
-if (-not $GithubPat) { Fail "GitHub PAT is required" }
-
 $templateFile = Join-Path $PSScriptRoot "azuredeploy.json"
 if (-not (Test-Path $templateFile)) { Fail "azuredeploy.json not found in $PSScriptRoot" }
 
@@ -301,9 +296,6 @@ $deployment = New-AzResourceGroupDeployment `
     -TemplateParameterObject @{
         siteName          = $SiteName
         location          = $Location
-        repositoryUrl     = $RepoUrl
-        repositoryBranch  = $Branch
-        repositoryToken   = $GithubPat
         entraTenantId     = $TenantId
         entraClientId     = $EntraClientId
         entraClientSecret = $EntraClientSecret

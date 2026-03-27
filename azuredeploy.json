@@ -26,19 +26,6 @@
       "allowedValues": ["Free", "Standard"],
       "metadata": { "description": "Standard required for custom Entra authentication" }
     },
-    "repositoryUrl": {
-      "type": "string",
-      "metadata": { "description": "GitHub repository URL, e.g. https://github.com/your-org/equipment-checkout-app" }
-    },
-    "repositoryBranch": {
-      "type": "string",
-      "defaultValue": "main",
-      "metadata": { "description": "Branch to deploy from" }
-    },
-    "repositoryToken": {
-      "type": "securestring",
-      "metadata": { "description": "GitHub Personal Access Token with repo scope" }
-    },
     "entraTenantId": {
       "type": "string",
       "metadata": { "description": "Azure AD / Entra tenant ID" }
@@ -100,16 +87,6 @@
         "tier": "[parameters('sku')]"
       },
       "properties": {
-        "repositoryUrl": "[parameters('repositoryUrl')]",
-        "branch": "[parameters('repositoryBranch')]",
-        "repositoryToken": "[parameters('repositoryToken')]",
-        "buildProperties": {
-          "appLocation": "/",
-          "apiLocation": "api",
-          "outputLocation": "dist",
-          "appBuildCommand": "npm run build",
-          "apiBuildCommand": "npm run build"
-        },
         "enterpriseGradeCdnStatus": "Disabled"
       }
     },

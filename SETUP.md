@@ -120,11 +120,11 @@ If you prefer the Azure portal wizard over PowerShell:
 
 [![Deploy to Azure](https://aka.ms/deploytoazure)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fintegrid-int%2Fequipment-checkout-app%2Fmain%2Fazuredeploy.json)
 
-The portal collects all parameters and provisions the infrastructure, but you will need to complete steps 5–7 manually afterward:
+The portal collects all parameters and provisions the infrastructure. Afterward complete these steps:
 
 1. Copy the `entraRedirectUri` from the deployment **Outputs** tab
 2. Add it to your Entra app registration under **Authentication → Redirect URIs**
-3. Add GitHub Actions secrets manually:
+3. Add GitHub Actions secrets — go to `github.com/integrid-int/equipment-checkout-app/settings/secrets/actions`:
 
    | Secret name | Value |
    |-------------|-------|
