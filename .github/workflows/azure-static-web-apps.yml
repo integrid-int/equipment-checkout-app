@@ -23,7 +23,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       # Inject Entra tenant ID into staticwebapp.config.json before build
       - name: Patch staticwebapp.config.json with tenant ID
