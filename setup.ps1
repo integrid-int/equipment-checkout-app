@@ -333,9 +333,10 @@ Write-Ok "Redirect URI added: $RedirectUri"
 
 Write-Step 10 "Setting GitHub Actions secrets"
 
-Import-Module Az.Websites -ErrorAction Stop
-
-$swaToken = (Get-AzStaticWebAppSecret -ResourceGroupName $ResourceGroup -Name $SiteName).Property.ApiKey
+$swaToken = az staticwebapp secrets list `
+    --name $SiteName `
+    --resource-group $ResourceGroup `
+    --query "properties.apiKey" -o tsv
 if (-not $swaToken) { Fail "Could not retrieve SWA deployment token" }
 
 $repoSlug = $RepoUrl -replace "https://github.com/", ""
