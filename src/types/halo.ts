@@ -1,16 +1,34 @@
-export interface HaloField {
-  name: string;
-  value: string;
-}
-
-export interface HaloAsset {
+export interface HaloTicket {
   id: number;
-  inventory_number: string;       // barcode / serial number
-  assettype_name: string;         // e.g. "Laptop", "Camera"
+  summary: string;
   client_name: string;
   site_name: string;
-  status_name: string;            // e.g. "Available", "In Use"
-  fields: HaloField[];
+  agent_name: string;
+  status_name: string;
+  dateoccurred: string;
+}
+
+export interface HaloItem {
+  id: number;
+  name: string;
+  description?: string;
+  /** Current quantity in stock */
+  count: number;
+  /** True = each unit has its own serial number */
+  serialized: boolean;
+  serialnumber?: string;
+  /** Barcode for non-serialized items */
+  barcode?: string;
+  supplier_name?: string;
+  unitprice?: number;
+}
+
+/** One line in a technician's pull list */
+export interface PullEntry {
+  item: HaloItem;
+  quantity: number;
+  /** Populated for serialized items */
+  serialNumber?: string;
 }
 
 export interface SwaUser {
@@ -19,19 +37,6 @@ export interface SwaUser {
     userRoles: string[];
     claims: Array<{ typ: string; val: string }>;
     identityProvider: string;
-    userDetails: string; // email / UPN
+    userDetails: string;
   } | null;
-}
-
-export interface CheckoutPayload {
-  assetId: number;
-  checkedOutTo: string;
-  checkedOutByEmail: string;
-  notes?: string;
-}
-
-export interface CheckinPayload {
-  assetId: number;
-  returnedByEmail: string;
-  notes?: string;
 }
