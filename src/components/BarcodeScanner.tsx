@@ -8,7 +8,8 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { BrowserMultiFormatReader, NotFoundException } from "@zxing/browser";
+import { BrowserMultiFormatReader } from "@zxing/browser";
+import { NotFoundException } from "@zxing/library";
 
 interface Props {
   onResult: (text: string) => void;
@@ -40,7 +41,7 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
       .catch((err) => setError(`Camera access denied: ${err.message}`));
 
     return () => {
-      readerRef.current?.reset();
+      readerRef.current?.stopContinuousDecode();
     };
   }, []);
 
@@ -50,7 +51,7 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
     const reader = readerRef.current;
     if (!reader) return;
 
-    reader.reset();
+    reader.stopContinuousDecode();
 
     reader
       .decodeFromVideoDevice(selectedCameraId, videoRef.current, (result, err) => {
