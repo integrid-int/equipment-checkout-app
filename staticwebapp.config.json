@@ -47,6 +47,9 @@
     "exclude": ["/api/*", "/icons/*", "/manifest.json"]
   },
   "mimeTypes": {
+    ".js": "application/javascript",
+    ".mjs": "application/javascript",
+    ".css": "text/css",
     ".json": "application/json"
   }
 }
