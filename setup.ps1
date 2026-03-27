@@ -4,37 +4,40 @@
     Full automated setup for the Deployment Kit App.
 
 .DESCRIPTION
-    Automates everything except the two manual Halo PSA steps:
-      1. Creating the Halo API client  (Admin → Integrations → API)
-      2. Adding custom fields to Items (Admin → Items → Custom Fields)
+    Only one manual prerequisite: create the Halo PSA API client.
+    Everything else — including Halo custom fields — is automated.
 
-    What this script does automatically:
+    What this script does:
       - Installs required PowerShell modules and GitHub CLI if missing
-      - Creates the Entra app registration with correct settings
-      - Generates a client secret
+      - Gets a Halo PSA token and creates/verifies the 4 custom fields on Items
+      - Creates the Entra app registration and client secret
       - Creates the Azure resource group
       - Deploys the ARM template (SWA + Storage Account)
-      - Retrieves the deployed SWA URL
       - Patches the Entra app with the correct redirect URI
       - Retrieves the SWA deployment token
       - Sets all required GitHub Actions secrets
       - Triggers the first CI/CD deployment
-      - Prints a completion summary
+      - Saves a summary to setup-output.txt
 
 .EXAMPLE
     .\setup.ps1
     .\setup.ps1 -ResourceGroup "my-rg" -Location "westus2" -SiteName "my-kit-app"
 
 .NOTES
-    Prerequisites (script will attempt to install missing items):
+    Prerequisites (script installs missing items automatically):
       - PowerShell 7+
-      - Azure CLI  OR  Az PowerShell module
+      - Az PowerShell module
       - Microsoft.Graph PowerShell module
       - GitHub CLI (gh)
+
+    One manual step before running:
+      Create a Halo PSA API client at Admin → Integrations → API
+      Authentication method: Client Credentials, Scope: all
 #>
 
 [CmdletBinding()]
 param(
+    [string]$HaloBaseUrl   = "https://integrid.halopsa.com",
     [string]$ResourceGroup = "integrid-deployment-kit-rg",
     [string]$Location      = "eastus2",
     [string]$SiteName      = "integrid-deployment-kit",
@@ -59,12 +62,35 @@ function Read-SecureInput($prompt) {
         [Runtime.InteropServices.Marshal]::SecureStringToBSTR($ss))
 }
 
-function Assert-Command($name, $installHint) {
-    if (-not (Get-Command $name -ErrorAction SilentlyContinue)) {
-        Write-Warn "$name not found. $installHint"
-        return $false
+# ── Halo PSA API helpers ──────────────────────────────────────────────────────
+
+function Get-HaloToken($clientId, $clientSecret) {
+    $body = "grant_type=client_credentials" +
+            "&client_id=$([Uri]::EscapeDataString($clientId))" +
+            "&client_secret=$([Uri]::EscapeDataString($clientSecret))" +
+            "&scope=all"
+    $resp = Invoke-RestMethod `
+        -Uri "$HaloBaseUrl/auth/token" `
+        -Method POST `
+        -Body $body `
+        -ContentType "application/x-www-form-urlencoded"
+    return $resp.access_token
+}
+
+function Invoke-HaloGet($token, $path, $query = @{}) {
+    $uri = "$HaloBaseUrl/api$path"
+    if ($query.Count -gt 0) {
+        $qs = ($query.GetEnumerator() | ForEach-Object { "$($_.Key)=$([Uri]::EscapeDataString($_.Value))" }) -join "&"
+        $uri = "$uri?$qs"
     }
-    return $true
+    return Invoke-RestMethod -Uri $uri -Method GET `
+        -Headers @{ Authorization = "Bearer $token" }
+}
+
+function Invoke-HaloPost($token, $path, $body) {
+    return Invoke-RestMethod -Uri "$HaloBaseUrl/api$path" -Method POST `
+        -Headers @{ Authorization = "Bearer $token"; "Content-Type" = "application/json" } `
+        -Body ($body | ConvertTo-Json -Depth 10)
 }
 
 # ── Banner ────────────────────────────────────────────────────────────────────
@@ -74,19 +100,18 @@ Write-Host "╔═════════════════════�
 Write-Host "║   Deployment Kit App — Automated Setup           ║" -ForegroundColor Blue
 Write-Host "╚══════════════════════════════════════════════════╝" -ForegroundColor Blue
 Write-Host ""
-Write-Host "  Before running this script you must have already:"
-Write-Host "  1. Created a Halo PSA API client (Admin → Integrations → API)"
-Write-Host "  2. Added custom fields to your Item type in Halo"
-Write-Host "     (CheckoutTo, CheckoutBy, CheckoutDate, CheckoutNotes)"
+Write-Host "  One manual step required before running:"
+Write-Host "  · Create a Halo PSA API client"
+Write-Host "    Admin → Integrations → API → New Application"
+Write-Host "    Authentication: Client Credentials   Scope: all"
 Write-Host ""
-$confirm = Read-Host "Have you completed both Halo steps? (y/n)"
-if ($confirm -ne "y") { Fail "Complete the Halo PSA manual steps first, then re-run." }
+$confirm = Read-Host "Have you created the Halo API client? (y/n)"
+if ($confirm -ne "y") { Fail "Create the Halo API client first, then re-run." }
 
 # ── Step 1: Prerequisites ─────────────────────────────────────────────────────
 
 Write-Step 1 "Checking prerequisites"
 
-# PowerShell modules
 foreach ($module in @("Az.Accounts", "Az.Resources", "Az.Websites", "Microsoft.Graph")) {
     if (-not (Get-Module -ListAvailable -Name $module)) {
         Write-Info "Installing $module..."
@@ -97,8 +122,7 @@ foreach ($module in @("Az.Accounts", "Az.Resources", "Az.Websites", "Microsoft.G
     }
 }
 
-# GitHub CLI
-if (-not (Assert-Command "gh" "")) {
+if (-not (Get-Command "gh" -ErrorAction SilentlyContinue)) {
     Write-Info "Installing GitHub CLI via winget..."
     try {
         winget install --id GitHub.cli --silent --accept-source-agreements --accept-package-agreements
@@ -106,11 +130,10 @@ if (-not (Assert-Command "gh" "")) {
                     [System.Environment]::GetEnvironmentVariable("PATH", "User")
         Write-Ok "GitHub CLI installed"
     } catch {
-        Fail "Could not install gh CLI automatically. Install from https://cli.github.com and re-run."
+        Fail "Could not install gh CLI. Install from https://cli.github.com and re-run."
     }
 }
 
-# Verify gh is authenticated
 gh auth status 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
     Write-Warn "GitHub CLI not authenticated. Launching gh auth login..."
@@ -144,9 +167,58 @@ if ($nameInput) { $SiteName = $nameInput }
 
 Write-Ok "Inputs collected"
 
-# ── Step 3: Azure login ───────────────────────────────────────────────────────
+# ── Step 3: Halo PSA custom fields ───────────────────────────────────────────
 
-Write-Step 3 "Signing in to Azure"
+Write-Step 3 "Creating Halo PSA custom fields on Items"
+
+# Field type IDs in Halo PSA: 1=Text, 2=Numeric, 3=Date, 4=Checkbox, 5=Dropdown
+$requiredFields = @(
+    @{ name = "CheckoutTo";    label = "Checked Out To"; type = 1 }
+    @{ name = "CheckoutBy";    label = "Checked Out By"; type = 1 }
+    @{ name = "CheckoutDate";  label = "Checkout Date";  type = 3 }
+    @{ name = "CheckoutNotes"; label = "Checkout Notes"; type = 1 }
+)
+
+try {
+    Write-Info "Authenticating with Halo PSA..."
+    $haloToken = Get-HaloToken $HaloClientId $HaloClientSecret
+    Write-Ok "Halo token acquired"
+
+    # Fetch existing custom fields for the Items object type
+    Write-Info "Fetching existing Item custom fields..."
+    $existing = Invoke-HaloGet $haloToken "/CustomField" @{ objecttype = "items" }
+    $existingNames = @($existing.customfields | Select-Object -ExpandProperty name)
+
+    foreach ($field in $requiredFields) {
+        if ($existingNames -contains $field.name) {
+            Write-Ok "Already exists: $($field.name)"
+            continue
+        }
+
+        Write-Info "Creating $($field.name)..."
+        Invoke-HaloPost $haloToken "/CustomField" @{
+            name       = $field.name
+            label      = $field.label
+            type       = $field.type
+            objecttype = "items"
+            searchable = $true
+        } | Out-Null
+
+        Write-Ok "Created: $($field.name) ($($field.label))"
+    }
+} catch {
+    # Non-fatal — surface the error and let the user decide
+    Write-Warn "Could not create custom fields automatically: $($_.Exception.Message)"
+    Write-Warn "You may need to create them manually in Halo:"
+    Write-Warn "  Admin → Items → Item Types → Custom Fields"
+    Write-Warn "  Fields: CheckoutTo, CheckoutBy, CheckoutDate, CheckoutNotes"
+    $cont = Read-Host "    Continue with the rest of setup anyway? (y/n)"
+    if ($cont -ne "y") { exit 1 }
+}
+
+# ── Step 4: Azure login ───────────────────────────────────────────────────────
+
+Write-Step 4 "Signing in to Azure"
 
 Import-Module Az.Accounts -ErrorAction Stop
 
@@ -160,9 +232,9 @@ Write-Ok "Subscription: $($ctx.Subscription.Name) ($($ctx.Subscription.Id))"
 
 $TenantId = $ctx.Tenant.Id
 
-# ── Step 4: Microsoft Graph login ────────────────────────────────────────────
+# ── Step 5: Microsoft Graph login ────────────────────────────────────────────
 
-Write-Step 4 "Connecting to Microsoft Graph"
+Write-Step 5 "Connecting to Microsoft Graph"
 
 Import-Module Microsoft.Graph.Applications -ErrorAction Stop
 Import-Module Microsoft.Graph.Authentication -ErrorAction Stop
@@ -170,46 +242,36 @@ Import-Module Microsoft.Graph.Authentication -ErrorAction Stop
 Connect-MgGraph -TenantId $TenantId -Scopes "Application.ReadWrite.All" -NoWelcome
 Write-Ok "Connected to Microsoft Graph (tenant: $TenantId)"
 
-# ── Step 5: Entra app registration ───────────────────────────────────────────
+# ── Step 6: Entra app registration ───────────────────────────────────────────
 
-Write-Step 5 "Creating Entra app registration"
+Write-Step 6 "Creating Entra app registration"
 
 $appName = "Deployment Kit App"
 
-# Check if app already exists
-$existing = Get-MgApplication -Filter "displayName eq '$appName'" -ErrorAction SilentlyContinue
-if ($existing) {
+$existingApp = Get-MgApplication -Filter "displayName eq '$appName'" -ErrorAction SilentlyContinue
+if ($existingApp) {
     Write-Warn "App '$appName' already exists — reusing it"
-    $app = $existing
+    $app = $existingApp
 } else {
     $app = New-MgApplication -DisplayName $appName `
         -SignInAudience "AzureADMyOrg" `
-        -Web @{
-            ImplicitGrantSettings = @{
-                EnableIdTokenIssuance = $true
-            }
-        }
+        -Web @{ ImplicitGrantSettings = @{ EnableIdTokenIssuance = $true } }
     Write-Ok "Created app: $appName ($($app.AppId))"
 }
 
 $EntraClientId = $app.AppId
 
-# Add client secret (expires 24 months)
 Write-Info "Generating client secret (24 month expiry)..."
-$secretParams = @{
-    ApplicationId       = $app.Id
-    PasswordCredential  = @{
-        DisplayName = "deployment-kit-$(Get-Date -Format 'yyyy-MM')"
-        EndDateTime = (Get-Date).AddMonths(24)
-    }
+$secret = Add-MgApplicationPassword -ApplicationId $app.Id -PasswordCredential @{
+    DisplayName = "deployment-kit-$(Get-Date -Format 'yyyy-MM')"
+    EndDateTime = (Get-Date).AddMonths(24)
 }
-$secret = Add-MgApplicationPassword @secretParams
 $EntraClientSecret = $secret.SecretText
 Write-Ok "Client secret created (expires $((Get-Date).AddMonths(24).ToString('yyyy-MM-dd')))"
 
-# ── Step 6: Resource group ────────────────────────────────────────────────────
+# ── Step 7: Resource group ────────────────────────────────────────────────────
 
-Write-Step 6 "Creating resource group: $ResourceGroup"
+Write-Step 7 "Creating resource group: $ResourceGroup"
 
 Import-Module Az.Resources -ErrorAction Stop
 
@@ -221,11 +283,10 @@ if ($rg) {
     Write-Ok "Created: $ResourceGroup ($Location)"
 }
 
-# ── Step 7: ARM deployment ────────────────────────────────────────────────────
+# ── Step 8: ARM deployment ────────────────────────────────────────────────────
 
-Write-Step 7 "Deploying ARM template (this takes ~2 minutes)"
+Write-Step 8 "Deploying ARM template (this takes ~2 minutes)"
 
-# Get GitHub PAT for ARM template repo wiring
 Write-Info "A GitHub PAT (repo scope) is needed to wire up GitHub Actions."
 Write-Info "Go to: github.com → Settings → Developer settings → Personal access tokens → Tokens (classic)"
 $GithubPat = Read-SecureInput "    GitHub PAT (repo scope)"
@@ -234,61 +295,52 @@ if (-not $GithubPat) { Fail "GitHub PAT is required" }
 $templateFile = Join-Path $PSScriptRoot "azuredeploy.json"
 if (-not (Test-Path $templateFile)) { Fail "azuredeploy.json not found in $PSScriptRoot" }
 
-$deployParams = @{
-    siteName          = $SiteName
-    location          = $Location
-    repositoryUrl     = $RepoUrl
-    repositoryBranch  = $Branch
-    repositoryToken   = $GithubPat
-    entraTenantId     = $TenantId
-    entraClientId     = $EntraClientId
-    entraClientSecret = $EntraClientSecret
-    haloClientId      = $HaloClientId
-    haloClientSecret  = $HaloClientSecret
-    adminEmails       = $AdminEmails
-}
-
 $deployment = New-AzResourceGroupDeployment `
     -ResourceGroupName $ResourceGroup `
     -TemplateFile $templateFile `
-    -TemplateParameterObject $deployParams `
+    -TemplateParameterObject @{
+        siteName          = $SiteName
+        location          = $Location
+        repositoryUrl     = $RepoUrl
+        repositoryBranch  = $Branch
+        repositoryToken   = $GithubPat
+        entraTenantId     = $TenantId
+        entraClientId     = $EntraClientId
+        entraClientSecret = $EntraClientSecret
+        haloClientId      = $HaloClientId
+        haloClientSecret  = $HaloClientSecret
+        adminEmails       = $AdminEmails
+    } `
     -Name "deployment-kit-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
 
 if ($deployment.ProvisioningState -ne "Succeeded") {
     Fail "ARM deployment failed: $($deployment.ProvisioningState)"
 }
 
-$SwaUrl         = $deployment.Outputs["swaUrl"].Value
-$RedirectUri    = $deployment.Outputs["entraRedirectUri"].Value
-$SwaHostname    = $deployment.Outputs["swaDefaultHostname"].Value 2>$null
-if (-not $SwaHostname) { $SwaHostname = $SwaUrl -replace "https://","" }
+$SwaUrl      = $deployment.Outputs["swaUrl"].Value
+$RedirectUri = $deployment.Outputs["entraRedirectUri"].Value
 
 Write-Ok "Deployed successfully"
 Write-Ok "App URL: $SwaUrl"
 
-# ── Step 8: Patch Entra redirect URI ─────────────────────────────────────────
+# ── Step 9: Patch Entra redirect URI ─────────────────────────────────────────
 
-Write-Step 8 "Adding redirect URI to Entra app"
+Write-Step 9 "Adding redirect URI to Entra app"
 
-$redirectUris = @($RedirectUri)
-
-# Preserve any existing redirect URIs
-$currentApp = Get-MgApplication -ApplicationId $app.Id
+$currentApp   = Get-MgApplication -ApplicationId $app.Id
 $existingUris = $currentApp.Web.RedirectUris ?? @()
-$mergedUris = ($existingUris + $redirectUris | Select-Object -Unique)
+$mergedUris   = ($existingUris + @($RedirectUri) | Select-Object -Unique)
 
 Update-MgApplication -ApplicationId $app.Id -Web @{
-    RedirectUris = $mergedUris
+    RedirectUris          = $mergedUris
     ImplicitGrantSettings = @{ EnableIdTokenIssuance = $true }
 }
-
 Write-Ok "Redirect URI added: $RedirectUri"
 
-# ── Step 9: GitHub Actions secrets ───────────────────────────────────────────
+# ── Step 10: GitHub Actions secrets ──────────────────────────────────────────
 
-Write-Step 9 "Setting GitHub Actions secrets"
+Write-Step 10 "Setting GitHub Actions secrets"
 
-# Get SWA deployment token
 Import-Module Az.Websites -ErrorAction Stop
 
 $swaToken = (Get-AzStaticWebAppSecret -ResourceGroupName $ResourceGroup -Name $SiteName).Property.ApiKey
@@ -296,15 +348,15 @@ if (-not $swaToken) { Fail "Could not retrieve SWA deployment token" }
 
 $repoSlug = $RepoUrl -replace "https://github.com/", ""
 
-gh secret set AZURE_STATIC_WEB_APPS_API_TOKEN --body $swaToken   --repo $repoSlug
-gh secret set ENTRA_TENANT_ID                  --body $TenantId   --repo $repoSlug
+gh secret set AZURE_STATIC_WEB_APPS_API_TOKEN --body $swaToken  --repo $repoSlug
+gh secret set ENTRA_TENANT_ID                  --body $TenantId  --repo $repoSlug
 
 Write-Ok "AZURE_STATIC_WEB_APPS_API_TOKEN set"
 Write-Ok "ENTRA_TENANT_ID set"
 
-# ── Step 10: Trigger first deployment ────────────────────────────────────────
+# ── Step 11: Trigger first deployment ────────────────────────────────────────
 
-Write-Step 10 "Triggering first GitHub Actions deployment"
+Write-Step 11 "Triggering first GitHub Actions deployment"
 
 gh workflow run "azure-static-web-apps.yml" --repo $repoSlug --ref $Branch
 Write-Ok "Workflow triggered — build will complete in ~3 minutes"
@@ -321,7 +373,7 @@ Write-Host "  App URL:          $SwaUrl" -ForegroundColor Cyan
 Write-Host "  Entra Client ID:  $EntraClientId" -ForegroundColor Cyan
 Write-Host "  Resource group:   $ResourceGroup" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "  ─── Still manual ──────────────────────────────────────────"
+Write-Host "  ─── Remaining manual steps ────────────────────────────────"
 Write-Host ""
 Write-Host "  1. Wait ~3 minutes for the GitHub Actions build to finish."
 Write-Host "     Monitor: https://github.com/$repoSlug/actions"
@@ -331,11 +383,10 @@ Write-Host "     Sign in with your Entra account."
 Write-Host ""
 Write-Host "  3. Tap Share → Add to Home Screen to install as a kiosk app."
 Write-Host ""
-Write-Host "  4. Open the Admin tab and assign roles to your team."
+Write-Host "  4. Open the Admin ⚙ tab and assign roles to your team."
 Write-Host "     Your account ($($AdminEmails.Split(',')[0].Trim())) already has Admin."
 Write-Host ""
 
-# Save outputs to file for reference
 $outputFile = Join-Path $PSScriptRoot "setup-output.txt"
 @"
 Deployment Kit App — Setup Output
@@ -351,7 +402,7 @@ Admin Emails:      $AdminEmails
 GitHub repo:       https://github.com/$repoSlug
 Actions:           https://github.com/$repoSlug/actions
 
-NOTE: Client secret is NOT saved here for security reasons.
+NOTE: Client secret is NOT saved here for security.
 Store it in your password manager.
 "@ | Set-Content $outputFile
 
