@@ -33,6 +33,55 @@ interface PullBody {
   entries: PullEntry[];
 }
 
+interface TicketIssuedLine {
+  item_id: number;
+  quantity: number;
+  name: string;
+}
+
+interface HaloStockItem {
+  id: number;
+  name?: string;
+  count?: number;
+  quantity_in_stock?: number;
+  isrecurringitem?: boolean;
+  dont_track_stock?: boolean;
+}
+
+function normalizeIssuedLines(raw: unknown): TicketIssuedLine[] {
+  if (!Array.isArray(raw)) return [];
+
+  const merged = new Map<number, TicketIssuedLine>();
+  for (const row of raw) {
+    if (!row || typeof row !== "object") continue;
+    const line = row as Record<string, unknown>;
+
+    const itemId = Number(line.item_id);
+    if (!Number.isFinite(itemId) || itemId <= 0) continue;
+
+    const quantity = Math.max(0, Math.trunc(Number(line.quantity ?? line.order_qty ?? 0)));
+    if (quantity <= 0) continue;
+
+    const name =
+      typeof line.name === "string" && line.name.trim()
+        ? line.name.trim()
+        : `Item #${itemId}`;
+
+    const existing = merged.get(itemId);
+    if (existing) {
+      existing.quantity += quantity;
+    } else {
+      merged.set(itemId, {
+        item_id: itemId,
+        quantity,
+        name,
+      });
+    }
+  }
+
+  return Array.from(merged.values());
+}
+
 app.http("pull", {
   methods: ["POST"],
   authLevel: "anonymous",
@@ -64,18 +113,28 @@ app.http("pull", {
 
         try {
           // Fetch current stock
-          const itemData = await haloGet<{ id: number; count: number; name: string }>(
+          const itemData = await haloGet<HaloStockItem>(
             `/Item/${entry.itemId}`
           );
 
-          const newCount = (itemData.count ?? 0) - entry.quantity;
-          if (newCount < 0) {
-            errors.push(`Insufficient stock for "${entry.itemName}" (available: ${itemData.count})`);
-            continue;
-          }
+          const stockTracked = !(itemData.dont_track_stock || itemData.isrecurringitem);
+          if (stockTracked) {
+            const available = Number(itemData.count ?? itemData.quantity_in_stock ?? 0);
+            const newCount = available - entry.quantity;
+            if (newCount < 0) {
+              errors.push(`Insufficient stock for "${entry.itemName}" (available: ${available})`);
+              continue;
+            }
 
-          // Update stock count
-          await haloPost("/Item", [{ id: entry.itemId, count: newCount }]);
+            // Some Halo tenants expose count, others expose quantity_in_stock.
+            await haloPost("/Item", [
+              {
+                id: entry.itemId,
+                count: newCount,
+                quantity_in_stock: newCount,
+              },
+            ]);
+          }
           successIndices.push(i);
         } catch (err) {
           ctx.error(`Stock update failed for item ${entry.itemId}:`, err);
@@ -89,6 +148,42 @@ app.http("pull", {
 
       // Build audit note for the ticket
       const successEntries = successIndices.map((i) => body.entries[i]);
+
+      // Attach successful pulled items to the ticket's issued-items list so
+      // additional ad-hoc scanned items are reflected on the Halo ticket.
+      try {
+        const ticket = await haloGet<Record<string, unknown>>(`/Tickets/${body.ticketId}`, {
+          includedetails: "true",
+          includelinkeddata: "true",
+        });
+        const mergedIssuedLines = new Map<number, TicketIssuedLine>();
+        for (const existing of normalizeIssuedLines(ticket.items_issued)) {
+          mergedIssuedLines.set(existing.item_id, { ...existing });
+        }
+
+        for (const entry of successEntries) {
+          const existing = mergedIssuedLines.get(entry.itemId);
+          if (existing) {
+            existing.quantity += entry.quantity;
+          } else {
+            mergedIssuedLines.set(entry.itemId, {
+              item_id: entry.itemId,
+              quantity: entry.quantity,
+              name: entry.itemName,
+            });
+          }
+        }
+
+        await haloPost("/Tickets", [
+          {
+            id: body.ticketId,
+            items_issued: Array.from(mergedIssuedLines.values()),
+          },
+        ]);
+      } catch (ticketErr) {
+        ctx.error(`Failed to update ticket ${body.ticketId} items_issued:`, ticketErr);
+        errors.push("Ticket item list update failed (pull completed, but ticket attachments were not updated)");
+      }
 
       const lines = successEntries.map((e) =>
         e.serialNumber
@@ -104,15 +199,20 @@ app.http("pull", {
         `Total items: ${successEntries.reduce((s, e) => s + e.quantity, 0)}`,
       ].join("\n");
 
-      await haloPost("/Actions", [
-        {
-          ticket_id: body.ticketId,
-          note,
-          outcome: "Kit Pulled",
-          who_type: 2,
-          hiddenfromclient: false,
-        },
-      ]);
+      try {
+        await haloPost("/Actions", [
+          {
+            ticket_id: body.ticketId,
+            note,
+            outcome: "Kit Pulled",
+            who_type: 2,
+            hiddenfromclient: false,
+          },
+        ]);
+      } catch (actionErr) {
+        ctx.error(`Failed to write pull action for ticket ${body.ticketId}:`, actionErr);
+        errors.push("Pull note update failed (stock/ticket items were updated)");
+      }
 
       return {
         status: 200,

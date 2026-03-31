@@ -16,6 +16,45 @@ interface HaloTicket {
   agent_name: string;
   status_name: string;
   dateoccurred: string;
+  attachedItems?: TicketAttachedItem[];
+  [key: string]: unknown;
+}
+
+interface TicketAttachedItem {
+  itemId: number;
+  itemName: string;
+  quantity: number;
+}
+
+function normalizeAttachedItems(rawItems: unknown): TicketAttachedItem[] {
+  if (!Array.isArray(rawItems)) return [];
+
+  const merged = new Map<number, TicketAttachedItem>();
+  for (const rawItem of rawItems) {
+    if (!rawItem || typeof rawItem !== "object") continue;
+
+    const item = rawItem as Record<string, unknown>;
+    const itemId = Number(item.item_id);
+    if (!Number.isFinite(itemId) || itemId <= 0) continue;
+
+    const rawQty = Number(item.quantity ?? item.order_qty ?? 0);
+    const quantity = Math.max(0, Math.trunc(rawQty));
+    if (quantity <= 0) continue;
+
+    const itemName =
+      typeof item.name === "string" && item.name.trim()
+        ? item.name.trim()
+        : `Item #${itemId}`;
+
+    const existing = merged.get(itemId);
+    if (existing) {
+      existing.quantity += quantity;
+    } else {
+      merged.set(itemId, { itemId, itemName, quantity });
+    }
+  }
+
+  return Array.from(merged.values());
 }
 
 app.http("tickets", {
@@ -36,34 +75,41 @@ app.http("tickets", {
       };
       if (search) params.search = search;
 
-      ctx.log(`Searching tickets with params: ${JSON.stringify(params)}`);
-
       const rawData = await haloGet<Record<string, unknown>>("/Tickets", params);
-
-      const ticketsArray = (rawData.tickets ?? []) as Record<string, unknown>[];
+      const ticketsArray = Array.isArray(rawData.tickets)
+        ? (rawData.tickets as Record<string, unknown>[])
+        : [];
       const total = (rawData.record_count ?? 0) as number;
+      const attachedByTicketId = new Map<number, TicketAttachedItem[]>();
+      const isNumericSearch = /^\d+$/.test(search);
 
-      // Discovery: log ALL keys on the first ticket to find item-related fields
-      if (ticketsArray.length > 0) {
-        const firstTicket = ticketsArray[0];
-        const allKeys = Object.keys(firstTicket);
-        ctx.log(`Ticket keys (${allKeys.length} total): [${allKeys.join(", ")}]`);
+      if (isNumericSearch) {
+        const searchId = Number(search);
+        const idsToEnrich = ticketsArray
+          .map((t) => Number(t.id))
+          .filter((id) => Number.isFinite(id) && id === searchId);
 
-        // Look for item/line-related fields
-        const itemKeys = allKeys.filter(k =>
-          k.includes("item") || k.includes("line") || k.includes("charge") ||
-          k.includes("product") || k.includes("quote") || k.includes("bill")
-        );
-        ctx.log(`Item-related keys: [${itemKeys.join(", ")}]`);
-
-        // Log values of item-related fields
-        for (const key of itemKeys) {
-          const val = firstTicket[key];
-          ctx.log(`  ${key} = ${JSON.stringify(val)?.substring(0, 200)}`);
+        for (const id of idsToEnrich) {
+          try {
+            const detailed = await haloGet<Record<string, unknown>>(`/Tickets/${id}`, {
+              includedetails: "true",
+              includelinkeddata: "true",
+            });
+            attachedByTicketId.set(id, normalizeAttachedItems(detailed.items_issued));
+          } catch (detailErr) {
+            ctx.warn(`Could not enrich attached items for ticket ${id}:`, detailErr);
+            attachedByTicketId.set(id, []);
+          }
         }
       }
 
-      const tickets = ticketsArray as unknown as HaloTicket[];
+      const tickets = ticketsArray.map((ticket) => {
+        const id = Number(ticket.id);
+        return {
+          ...ticket,
+          attachedItems: attachedByTicketId.get(id) ?? [],
+        };
+      }) as HaloTicket[];
 
       return {
         status: 200,

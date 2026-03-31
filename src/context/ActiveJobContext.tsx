@@ -4,7 +4,7 @@
  */
 
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import type { HaloTicket, PullEntry } from "../types/halo";
+import type { HaloTicket, PullEntry, TicketAttachedItem } from "../types/halo";
 
 interface ActiveJobState {
   ticket: HaloTicket | null;
@@ -12,10 +12,10 @@ interface ActiveJobState {
 }
 
 interface ActiveJobContextValue extends ActiveJobState {
-  setTicket: (ticket: HaloTicket | null) => void;
+  setTicket: (ticket: HaloTicket | null, options?: { seedFromAttachedItems?: boolean }) => void;
   addEntry: (entry: PullEntry) => void;
   updateEntryQty: (itemId: number, quantity: number) => void;
-  removeEntry: (itemId: number) => void;
+  removeEntry: (itemId: number, serialNumber?: string) => void;
   clearPullList: () => void;
   clearJob: () => void;
 }
@@ -23,6 +23,27 @@ interface ActiveJobContextValue extends ActiveJobState {
 const KEY = "activeJob";
 
 const ActiveJobContext = createContext<ActiveJobContextValue | null>(null);
+
+function toPullEntries(attachedItems: TicketAttachedItem[] | undefined): PullEntry[] {
+  if (!attachedItems?.length) return [];
+  return attachedItems
+    .filter((item) => item.itemId > 0 && item.quantity > 0)
+    .map((item) => ({
+      item: {
+        id: item.itemId,
+        name: item.itemName,
+        count:
+          typeof item.currentStock === "number"
+            ? Math.max(item.currentStock, item.quantity)
+            : item.quantity,
+        serialized: Boolean(item.serialized),
+        stockTracked: item.stockTracked,
+        serialnumber: item.serialNumber,
+      },
+      quantity: item.quantity,
+      serialNumber: item.serialNumber,
+    }));
+}
 
 export function ActiveJobProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<ActiveJobState>(() => {
@@ -38,8 +59,15 @@ export function ActiveJobProvider({ children }: { children: ReactNode }) {
     sessionStorage.setItem(KEY, JSON.stringify(state));
   }, [state]);
 
-  function setTicket(ticket: HaloTicket | null) {
-    setState((s) => ({ ...s, ticket }));
+  function setTicket(ticket: HaloTicket | null, options?: { seedFromAttachedItems?: boolean }) {
+    setState((s) => {
+      if (!ticket) return { ...s, ticket: null };
+      if (!options?.seedFromAttachedItems) return { ...s, ticket };
+      return {
+        ticket,
+        pullList: toPullEntries(ticket.attachedItems),
+      };
+    });
   }
 
   function addEntry(entry: PullEntry) {
@@ -69,10 +97,14 @@ export function ActiveJobProvider({ children }: { children: ReactNode }) {
     }));
   }
 
-  function removeEntry(itemId: number) {
+  function removeEntry(itemId: number, serialNumber?: string) {
     setState((s) => ({
       ...s,
-      pullList: s.pullList.filter((e) => e.item.id !== itemId),
+      pullList: s.pullList.filter((e) => {
+        if (e.item.id !== itemId) return true;
+        if (serialNumber !== undefined) return e.serialNumber !== serialNumber;
+        return e.serialNumber !== undefined;
+      }),
     }));
   }
 

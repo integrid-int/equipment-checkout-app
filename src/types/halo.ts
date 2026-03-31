@@ -6,6 +6,17 @@ export interface HaloTicket {
   agent_name: string;
   status_name: string;
   dateoccurred: string;
+  attachedItems?: TicketAttachedItem[];
+}
+
+export interface TicketAttachedItem {
+  itemId: number;
+  itemName: string;
+  quantity: number;
+  currentStock?: number;
+  serialized: boolean;
+  stockTracked?: boolean;
+  serialNumber?: string;
 }
 
 export interface HaloItem {
@@ -16,6 +27,8 @@ export interface HaloItem {
   count: number;
   /** True = each unit has its own serial number */
   serialized: boolean;
+  /** False for recurring/non-stock-tracked catalog items */
+  stockTracked?: boolean;
   serialnumber?: string;
   /** Barcode for non-serialized items */
   barcode?: string;

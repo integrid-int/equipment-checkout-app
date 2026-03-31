@@ -54,7 +54,7 @@ export default function PullKitPage() {
 
       const item = data.items[0];
 
-      if (item.count <= 0) {
+      if (item.stockTracked !== false && item.count <= 0) {
         setLookupError(`"${item.name}" is out of stock`);
         return;
       }
@@ -89,7 +89,7 @@ export default function PullKitPage() {
     if (!modal || modal.type !== "quantity") return;
     const qty = parseInt(qtyInput, 10);
     if (!qty || qty < 1) return;
-    if (qty > modal.item.count) {
+    if (modal.item.stockTracked !== false && qty > modal.item.count) {
       showToast(`Only ${modal.item.count} in stock`, "error");
       return;
     }
@@ -207,20 +207,35 @@ export default function PullKitPage() {
                     >−</button>
                     <span className="text-sm font-semibold w-6 text-center">{entry.quantity}</span>
                     <button
-                      onClick={() => updateEntryQty(entry.item.id, Math.min(entry.item.count, entry.quantity + 1))}
+                      onClick={() =>
+                        updateEntryQty(
+                          entry.item.id,
+                          entry.item.stockTracked === false
+                            ? entry.quantity + 1
+                            : Math.min(entry.item.count, entry.quantity + 1)
+                        )
+                      }
                       className="w-7 h-7 rounded-lg bg-gray-100 text-gray-600 font-bold flex items-center justify-center"
                     >+</button>
-                    <span className="text-xs text-gray-400 ml-1">(stock: {entry.item.count})</span>
+                    <span className="text-xs text-gray-400 ml-1">
+                      {entry.item.stockTracked === false ? "non-stock tracked" : `(stock: ${entry.item.count})`}
+                    </span>
                   </div>
                 )}
               </div>
               <button
-                onClick={() => removeEntry(entry.item.id)}
+                onClick={() => removeEntry(entry.item.id, entry.serialNumber)}
                 className="w-8 h-8 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center shrink-0"
               >✕</button>
             </div>
           ))}
         </div>
+      )}
+
+      {ticket.attachedItems && ticket.attachedItems.length > 0 && (
+        <p className="text-xs text-gray-400">
+          Ticket includes {ticket.attachedItems.length} attached item{ticket.attachedItems.length !== 1 ? "s" : ""}. You can scan additional items to attach before checkout.
+        </p>
       )}
 
       {pullList.length === 0 && (
@@ -274,12 +289,14 @@ export default function PullKitPage() {
           <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl p-6 pb-safe-bottom shadow-xl">
             <h2 className="text-xl font-bold mb-1">Add Item</h2>
             <p className="text-gray-500 text-sm mb-1">{modal.item.name}</p>
-            <p className="text-xs text-gray-400 mb-4">{modal.item.count} in stock</p>
+            <p className="text-xs text-gray-400 mb-4">
+              {modal.item.stockTracked === false ? "Non-stock tracked item" : `${modal.item.count} in stock`}
+            </p>
             <label className="label">Quantity</label>
             <input
               type="number"
               min={1}
-              max={modal.item.count}
+              max={modal.item.stockTracked === false ? undefined : modal.item.count}
               value={qtyInput}
               onChange={(e) => setQtyInput(e.target.value)}
               className="input mb-4 text-2xl text-center font-bold"

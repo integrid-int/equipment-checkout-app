@@ -8,7 +8,7 @@ import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import BarcodeScanner from "../components/BarcodeScanner";
 import { useActiveJob } from "../context/ActiveJobContext";
-import type { HaloTicket } from "../types/halo";
+import type { HaloTicket, TicketAttachedItem } from "../types/halo";
 
 export default function FindJobPage() {
   const navigate = useNavigate();
@@ -16,9 +16,53 @@ export default function FindJobPage() {
 
   const [scanning, setScanning] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [selectingTicketId, setSelectingTicketId] = useState<number | null>(null);
   const [results, setResults] = useState<HaloTicket[]>([]);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
+
+  const hydrateTicketAttachedItems = useCallback(async (ticket: HaloTicket): Promise<HaloTicket> => {
+    const attached = ticket.attachedItems ?? [];
+    if (attached.length === 0) {
+      return { ...ticket, attachedItems: [] };
+    }
+
+    const enriched = await Promise.all(
+      attached.map(async (item): Promise<TicketAttachedItem> => {
+        try {
+          const res = await fetch(`/api/items?id=${item.itemId}`);
+          if (!res.ok) return item;
+          const data = (await res.json()) as {
+            items: Array<{
+              count?: number;
+              serialized?: boolean;
+              serialnumber?: string;
+              stockTracked?: boolean;
+            }>;
+          };
+          const found = data.items?.[0];
+          if (!found) return item;
+          return {
+            ...item,
+            currentStock: typeof found.count === "number" ? found.count : item.currentStock,
+            serialized:
+              typeof found.serialized === "boolean"
+                ? found.serialized
+                : item.serialized,
+            stockTracked:
+              typeof found.stockTracked === "boolean"
+                ? found.stockTracked
+                : item.stockTracked,
+            serialNumber: found.serialnumber ?? item.serialNumber,
+          };
+        } catch {
+          return item;
+        }
+      })
+    );
+
+    return { ...ticket, attachedItems: enriched };
+  }, []);
 
   const searchTickets = useCallback(async (q: string) => {
     if (!q.trim()) return;
@@ -44,10 +88,17 @@ export default function FindJobPage() {
     searchTickets(code);
   }
 
-  function selectTicket(t: HaloTicket) {
-    setTicket(t);
-    setResults([]);
-    setQuery("");
+  async function selectTicket(t: HaloTicket) {
+    setSelectingTicketId(t.id);
+    try {
+      const hydratedTicket = await hydrateTicketAttachedItems(t);
+      setTicket(hydratedTicket, { seedFromAttachedItems: true });
+      setResults([]);
+      setQuery("");
+      setError(null);
+    } finally {
+      setSelectingTicketId(null);
+    }
   }
 
   function handleStartPull() {
@@ -137,6 +188,7 @@ export default function FindJobPage() {
             <button
               key={t.id}
               onClick={() => selectTicket(t)}
+              disabled={selectingTicketId === t.id}
               className="bg-white border border-gray-100 rounded-2xl p-4 text-left shadow-sm flex items-start gap-3 active:scale-[0.99] transition-all"
             >
               <div className="bg-brand-100 text-brand-600 font-bold rounded-xl px-2.5 py-1 text-sm shrink-0">
@@ -149,7 +201,9 @@ export default function FindJobPage() {
                 </p>
                 <p className="text-xs text-gray-400 mt-0.5">{t.status_name} · {t.agent_name}</p>
               </div>
-              <span className="text-gray-300 text-lg shrink-0">›</span>
+              <span className="text-gray-300 text-lg shrink-0">
+                {selectingTicketId === t.id ? "…" : "›"}
+              </span>
             </button>
           ))}
         </div>
