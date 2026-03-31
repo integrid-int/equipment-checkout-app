@@ -41,19 +41,28 @@ app.http("tickets", {
         }
       }
 
-      // Text search — match Halo skill doc pattern: GET /api/Tickets?search=...&open_only=true
+      // Text search — match Halo skill doc: GET /api/Tickets?search=...&open_only=true
       const params: Record<string, string> = {
         open_only: "true",
       };
       if (search) params.search = search;
 
       ctx.log(`Searching tickets with params: ${JSON.stringify(params)}`);
-      const data = await haloGet<{ tickets: HaloTicket[]; record_count: number }>("/Tickets", params);
-      ctx.log(`Halo returned ${data.record_count ?? 0} tickets`);
+
+      // Use raw fetch via haloGet but log the full response shape
+      const rawData = await haloGet<Record<string, unknown>>("/Tickets", params);
+      const keys = Object.keys(rawData);
+      ctx.log(`Halo /Tickets response keys: [${keys.join(", ")}]`);
+      ctx.log(`Halo /Tickets raw response (first 500 chars): ${JSON.stringify(rawData).substring(0, 500)}`);
+
+      const tickets = (rawData.tickets ?? []) as HaloTicket[];
+      const total = (rawData.record_count ?? 0) as number;
+
+      ctx.log(`Parsed ${tickets.length} tickets, record_count=${total}`);
 
       return {
         status: 200,
-        jsonBody: { tickets: data.tickets ?? [], total: data.record_count ?? 0 },
+        jsonBody: { tickets, total },
       };
     } catch (err) {
       ctx.error("tickets error:", err);
