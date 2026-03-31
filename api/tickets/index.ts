@@ -26,20 +26,9 @@ app.http("tickets", {
     try {
       const search = (req.query.get("search") ?? "").trim();
 
-      // If the search is a ticket number, fetch directly by ID
-      const ticketId = parseInt(search, 10);
-      if (!isNaN(ticketId) && String(ticketId) === search) {
-        try {
-          const ticket = await haloGet<HaloTicket>(`/Tickets/${ticketId}`);
-          ctx.log(`Ticket ${ticketId} found by direct ID lookup`);
-          return {
-            status: 200,
-            jsonBody: { tickets: [ticket], total: 1 },
-          };
-        } catch (err) {
-          ctx.warn(`Ticket ${ticketId} not found by ID: ${(err as Error).message}. Falling back to text search.`);
-        }
-      }
+      // For numeric searches, skip the direct /Tickets/{id} lookup (returns 401
+      // with client credentials) and just use the list endpoint with search param.
+      // The search param matches ticket IDs in the list response.
 
       // Text search — try with minimal params first to debug
       const params: Record<string, string> = {};
