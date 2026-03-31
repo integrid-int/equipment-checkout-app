@@ -7,6 +7,7 @@
 
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { haloGet } from "../shared/haloClient";
+import { appendFileSync } from "fs";
 
 interface HaloTicket {
   id: number;
@@ -64,6 +65,9 @@ app.http("tickets", {
   handler: async (req: HttpRequest, ctx: InvocationContext): Promise<HttpResponseInit> => {
     try {
       const search = (req.query.get("search") ?? "").trim();
+      // #region agent log
+      try { appendFileSync("/opt/cursor/logs/debug.log", JSON.stringify({ hypothesisId: "A", location: "api/tickets/index.ts:68", message: "tickets handler entry", data: { search }, timestamp: Date.now() }) + "\n"); } catch {}
+      // #endregion
 
       // For numeric searches, skip the direct /Tickets/{id} lookup (returns 401
       // with client credentials) and just use the list endpoint with search param.
@@ -88,6 +92,9 @@ app.http("tickets", {
         const idsToEnrich = ticketsArray
           .map((t) => Number(t.id))
           .filter((id) => Number.isFinite(id) && id === searchId);
+        // #region agent log
+        try { appendFileSync("/opt/cursor/logs/debug.log", JSON.stringify({ hypothesisId: "A", location: "api/tickets/index.ts:93", message: "numeric enrichment candidates", data: { searchId, idsToEnrichCount: idsToEnrich.length }, timestamp: Date.now() }) + "\n"); } catch {}
+        // #endregion
 
         for (const id of idsToEnrich) {
           try {
@@ -110,12 +117,18 @@ app.http("tickets", {
           attachedItems: attachedByTicketId.get(id) ?? [],
         };
       }) as HaloTicket[];
+      // #region agent log
+      try { appendFileSync("/opt/cursor/logs/debug.log", JSON.stringify({ hypothesisId: "A", location: "api/tickets/index.ts:118", message: "tickets handler success", data: { search, ticketCount: tickets.length, enrichedCount: attachedByTicketId.size, isNumericSearch }, timestamp: Date.now() }) + "\n"); } catch {}
+      // #endregion
 
       return {
         status: 200,
         jsonBody: { tickets, total },
       };
     } catch (err) {
+      // #region agent log
+      try { appendFileSync("/opt/cursor/logs/debug.log", JSON.stringify({ hypothesisId: "D", location: "api/tickets/index.ts:127", message: "tickets handler error", data: { error: err instanceof Error ? err.message : String(err) }, timestamp: Date.now() }) + "\n"); } catch {}
+      // #endregion
       ctx.error("tickets error:", err);
       return { status: 500, jsonBody: { error: "Internal server error" } };
     }

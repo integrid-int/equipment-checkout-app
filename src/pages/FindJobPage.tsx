@@ -105,12 +105,7 @@ export default function FindJobPage() {
   async function selectTicket(t: HaloTicket) {
     setSelectingTicketId(t.id);
     try {
-      const latestRes = await fetch(`/api/tickets?search=${encodeURIComponent(String(t.id))}`);
-      const latestData = latestRes.ok
-        ? ((await latestRes.json()) as { tickets: HaloTicket[] })
-        : null;
-      const latestTicket = latestData?.tickets?.find((ticket) => ticket.id === t.id) ?? t;
-      const hydratedTicket = await hydrateTicketAttachedItems(latestTicket);
+      const hydratedTicket = await hydrateTicketAttachedItems(t);
       setTicket(hydratedTicket, { seedFromAttachedItems: true });
       setResults([]);
       setQuery("");
