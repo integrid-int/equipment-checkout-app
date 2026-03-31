@@ -41,11 +41,10 @@ app.http("tickets", {
         }
       }
 
-      // Text search — match Halo skill doc: GET /api/Tickets?search=...&open_only=true
-      const params: Record<string, string> = {
-        open_only: "true",
-      };
+      // Text search — try with minimal params first to debug
+      const params: Record<string, string> = {};
       if (search) params.search = search;
+      // Note: open_only removed temporarily for debugging
 
       ctx.log(`Searching tickets with params: ${JSON.stringify(params)}`);
 
