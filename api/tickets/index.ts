@@ -31,24 +31,27 @@ app.http("tickets", {
       if (!isNaN(ticketId) && String(ticketId) === search) {
         try {
           const ticket = await haloGet<HaloTicket>(`/Tickets/${ticketId}`);
+          ctx.log(`Ticket ${ticketId} found by direct ID lookup`);
           return {
             status: 200,
             jsonBody: { tickets: [ticket], total: 1 },
           };
         } catch (err) {
-          ctx.log(`Ticket ${ticketId} not found by ID, falling back to text search`);
+          ctx.warn(`Ticket ${ticketId} not found by ID: ${(err as Error).message}. Falling back to text search.`);
         }
       }
 
       // Text search
       const params: Record<string, string> = {
         pageinate: "true",
-        pagesize: "20",
+        page_size: "20",
         open_only: "true",
       };
       if (search) params.search = search;
 
+      ctx.log(`Searching tickets with params: ${JSON.stringify(params)}`);
       const data = await haloGet<{ tickets: HaloTicket[]; record_count: number }>("/Tickets", params);
+      ctx.log(`Halo returned ${data.record_count ?? 0} tickets`);
 
       return {
         status: 200,

@@ -48,7 +48,7 @@ app.http("purchase-orders", {
       // Search POs (open and partial only)
       const params: Record<string, string> = {
         pageinate: "true",
-        pagesize: "20",
+        page_size: "20",
         open_only: "true",
       };
       if (search) params.search = search;

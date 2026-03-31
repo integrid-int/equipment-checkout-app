@@ -32,7 +32,7 @@ app.http("items", {
       const params: Record<string, string> = {
         pageinate: "true",
         page_no: page,
-        pagesize,
+        page_size: pagesize,
       };
       if (search) params.search = search;
 
