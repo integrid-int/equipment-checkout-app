@@ -31,11 +31,18 @@ app.http("tickets", {
       };
       if (search) params.search = search;
 
-      const data = await haloGet<{ tickets: HaloTicket[]; record_count: number }>("/Tickets", params);
+      const data = await haloGet<Record<string, unknown>>("/Tickets", params);
+
+      ctx.log("Halo /Tickets response keys:", Object.keys(data));
+      ctx.log("Halo /Tickets record_count:", data.record_count);
+
+      // Halo returns tickets under "tickets" key
+      const tickets = (data.tickets ?? []) as HaloTicket[];
+      const total = (data.record_count ?? 0) as number;
 
       return {
         status: 200,
-        jsonBody: { tickets: data.tickets ?? [], total: data.record_count ?? 0 },
+        jsonBody: { tickets, total },
       };
     } catch (err) {
       ctx.error("tickets error:", err);
