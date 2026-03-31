@@ -77,7 +77,9 @@ export default function App() {
   if (loading) return <LoadingScreen />;
 
   if (!isAuthenticated) {
-    window.location.href = "/login";
+    const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    const postLoginRedirect = window.location.pathname === "/login" ? "/" : currentPath;
+    window.location.href = `/.auth/login/aad?post_login_redirect_uri=${encodeURIComponent(postLoginRedirect)}`;
     return <LoadingScreen />;
   }
 
