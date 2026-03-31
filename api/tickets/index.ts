@@ -26,6 +26,11 @@ interface TicketAttachedItem {
   quantity: number;
 }
 
+function asTicketId(value: unknown): number | null {
+  const id = Number(value);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
 function normalizeAttachedItems(rawItems: unknown): TicketAttachedItem[] {
   if (!Array.isArray(rawItems)) return [];
 
@@ -64,12 +69,6 @@ app.http("tickets", {
   handler: async (req: HttpRequest, ctx: InvocationContext): Promise<HttpResponseInit> => {
     try {
       const search = (req.query.get("search") ?? "").trim();
-
-      // For numeric searches, skip the direct /Tickets/{id} lookup (returns 401
-      // with client credentials) and just use the list endpoint with search param.
-      // The search param matches ticket IDs in the list response.
-
-      // Search with includedetails to discover if ticket items are returned
       const params: Record<string, string> = {
         includedetails: "true",
       };
@@ -86,20 +85,44 @@ app.http("tickets", {
       if (isNumericSearch) {
         const searchId = Number(search);
         const idsToEnrich = ticketsArray
-          .map((t) => Number(t.id))
-          .filter((id) => Number.isFinite(id) && id === searchId);
+          .map((t) => asTicketId(t.id))
+          .filter((id): id is number => id !== null && id === searchId);
 
         for (const id of idsToEnrich) {
-          try {
-            const detailed = await haloGet<Record<string, unknown>>(`/Tickets/${id}`, {
-              includedetails: "true",
-              includelinkeddata: "true",
-            });
-            attachedByTicketId.set(id, normalizeAttachedItems(detailed.items_issued));
-          } catch (detailErr) {
-            ctx.warn(`Could not enrich attached items for ticket ${id}:`, detailErr);
-            attachedByTicketId.set(id, []);
+          const baseTicket = ticketsArray.find((t) => asTicketId(t.id) === id);
+          let attachedItems = normalizeAttachedItems(baseTicket?.items_issued);
+
+          if (attachedItems.length === 0) {
+            try {
+              const detailed = await haloGet<Record<string, unknown>>(`/Tickets/${id}`, {
+                includedetails: "true",
+                includelinkeddata: "true",
+              });
+              attachedItems = normalizeAttachedItems(detailed.items_issued);
+            } catch (detailErr) {
+              // Some tenants return 401/403 for /Tickets/{id} with app creds.
+              ctx.warn(`Primary ticket detail fetch failed for ticket ${id}:`, detailErr);
+            }
           }
+
+          if (attachedItems.length === 0) {
+            try {
+              const fallback = await haloGet<Record<string, unknown>>("/Tickets", {
+                search: String(id),
+                includedetails: "true",
+                includelinkeddata: "true",
+              });
+              const fallbackTickets = Array.isArray(fallback.tickets)
+                ? (fallback.tickets as Record<string, unknown>[])
+                : [];
+              const exact = fallbackTickets.find((t) => asTicketId(t.id) === id);
+              attachedItems = normalizeAttachedItems(exact?.items_issued);
+            } catch (fallbackErr) {
+              ctx.warn(`Fallback ticket list fetch failed for ticket ${id}:`, fallbackErr);
+            }
+          }
+
+          attachedByTicketId.set(id, attachedItems);
         }
       }
 
