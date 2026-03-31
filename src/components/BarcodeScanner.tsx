@@ -7,7 +7,7 @@
  *  onClose()      — called when the user dismisses the scanner
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { BrowserMultiFormatReader } from "@zxing/browser";
 import { NotFoundException } from "@zxing/library";
 
@@ -23,28 +23,51 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState<string | undefined>();
   const lastResultRef = useRef<string>("");
+  const streamRef = useRef<MediaStream | null>(null);
 
+  // Request camera permission explicitly — required on iOS Safari
   useEffect(() => {
     const reader = new BrowserMultiFormatReader();
     readerRef.current = reader;
 
-    // Get available cameras; prefer rear camera on mobile
-    BrowserMultiFormatReader.listVideoInputDevices()
+    // getUserMedia triggers the iOS permission prompt; enumerateDevices alone does not
+    navigator.mediaDevices
+      .getUserMedia({ video: { facingMode: "environment" } })
+      .then((stream) => {
+        // Stop the temporary stream — we'll start a new one via zxing
+        stream.getTracks().forEach((t) => t.stop());
+
+        // Now that permission is granted, enumerate devices
+        return BrowserMultiFormatReader.listVideoInputDevices();
+      })
       .then((devices) => {
         setCameras(devices);
-        // Prefer back/environment camera
         const back = devices.find(
-          (d) => d.label.toLowerCase().includes("back") || d.label.toLowerCase().includes("rear")
+          (d) =>
+            d.label.toLowerCase().includes("back") ||
+            d.label.toLowerCase().includes("rear") ||
+            d.label.toLowerCase().includes("environment")
         );
         setSelectedCameraId(back?.deviceId ?? devices[0]?.deviceId);
       })
-      .catch((err) => setError(`Camera access denied: ${err.message}`));
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === "NotAllowedError") {
+          setError("Camera permission was denied. Please allow camera access in your browser settings.");
+        } else if (err instanceof DOMException && err.name === "NotFoundError") {
+          setError("No camera found on this device.");
+        } else {
+          setError(`Camera access failed: ${err.message}`);
+        }
+      });
 
     return () => {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-(readerRef.current as any)?.reset?.();
+      (readerRef.current as any)?.reset?.();
     };
   }, []);
+
+  const onResultStable = useCallback(onResult, [onResult]);
 
   useEffect(() => {
     if (!selectedCameraId || !videoRef.current) return;
@@ -52,26 +75,37 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
     const reader = readerRef.current;
     if (!reader) return;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (reader as any)?.reset?.();
 
     reader
       .decodeFromVideoDevice(selectedCameraId, videoRef.current, (result, err) => {
         if (result) {
           const text = result.getText();
-          // Debounce: don't fire the same code twice in a row
           if (text !== lastResultRef.current) {
             lastResultRef.current = text;
-            // Brief vibration feedback on mobile
             if ("vibrate" in navigator) navigator.vibrate(100);
-            onResult(text);
+            onResultStable(text);
           }
         } else if (err && !(err instanceof NotFoundException)) {
           console.warn("Scan error:", err);
         }
       })
+      .then(() => {
+        // Capture the active stream so we can stop it on cleanup
+        if (videoRef.current?.srcObject instanceof MediaStream) {
+          streamRef.current = videoRef.current.srcObject;
+        }
+      })
       .catch((err: Error) => setError(`Camera error: ${err.message}`));
-  }, [selectedCameraId, onResult]);
+
+    return () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (reader as any)?.reset?.();
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    };
+  }, [selectedCameraId, onResultStable]);
 
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col">
