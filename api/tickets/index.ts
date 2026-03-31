@@ -30,7 +30,7 @@ app.http("tickets", {
       const ticketId = parseInt(search, 10);
       if (!isNaN(ticketId) && String(ticketId) === search) {
         try {
-          const ticket = await haloGet<HaloTicket>(`/tickets/${ticketId}`);
+          const ticket = await haloGet<HaloTicket>(`/Tickets/${ticketId}`);
           ctx.log(`Ticket ${ticketId} found by direct ID lookup`);
           return {
             status: 200,
@@ -41,16 +41,14 @@ app.http("tickets", {
         }
       }
 
-      // Text search
+      // Text search — match Halo skill doc pattern: GET /api/Tickets?search=...&open_only=true
       const params: Record<string, string> = {
-        pageinate: "true",
-        page_size: "20",
         open_only: "true",
       };
       if (search) params.search = search;
 
       ctx.log(`Searching tickets with params: ${JSON.stringify(params)}`);
-      const data = await haloGet<{ tickets: HaloTicket[]; record_count: number }>("/tickets", params);
+      const data = await haloGet<{ tickets: HaloTicket[]; record_count: number }>("/Tickets", params);
       ctx.log(`Halo returned ${data.record_count ?? 0} tickets`);
 
       return {
