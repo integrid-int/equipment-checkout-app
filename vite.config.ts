@@ -11,6 +11,11 @@ export default defineConfig({
       manifest: false, // We use our own manifest.json in public/
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
+        navigateFallbackDenylist: [
+          /^\/\.auth(?:\/|$)/,
+          /^\/(?:login|logout)(?:\/|$)/,
+          /^\/api(?:\/|$)/,
+        ],
         runtimeCaching: [
           {
             urlPattern: /^\/api\//,
@@ -33,5 +38,10 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  build: {
+    // Vite 7 defaults to Safari 16+, which can break older iOS Safari clients.
+    target: "safari14",
+    cssTarget: "safari14",
   },
 });
