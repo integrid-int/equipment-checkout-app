@@ -1,8 +1,8 @@
 /**
- * Fetches the current user's app role from /api/me and makes it available
+ * Fetches the current user's app role claim from /api/me and makes it available
  * throughout the app. Role is one of: "admin" | "technician" | "receiver" | null.
  *
- * null means the user is authenticated but has no role assigned yet.
+ * null means the user is authenticated but has no recognized app role claim.
  */
 
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";

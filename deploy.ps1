@@ -52,9 +52,6 @@ $HaloClientSecret = Read-Host "  Halo Client Secret" -AsSecureString
 $HaloClientSecretPlain = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
     [Runtime.InteropServices.Marshal]::SecureStringToBSTR($HaloClientSecret))
 
-$AdminEmails = Read-Host "  Admin email(s)       (comma-separated)"
-if (-not $AdminEmails) { Write-Fail "At least one admin email is required" }
-
 # ── Resource Group ─────────────────────────────────────────────────────────────
 Write-Header "Creating resource group: $RG"
 az group create --name $RG --location $Location --output none
@@ -73,7 +70,6 @@ $DeployOutput = az deployment group create `
       entraClientSecret=$EntraClientSecretPlain `
       haloClientId=$HaloClientId `
       haloClientSecret=$HaloClientSecretPlain `
-      adminEmails=$AdminEmails `
   --output json | ConvertFrom-Json
 
 $SwaUrl      = $DeployOutput.properties.outputs.swaUrl.value

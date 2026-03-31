@@ -152,11 +152,6 @@ $HaloClientSecret = Read-SecureInput "    Client Secret"
 if (-not $HaloClientId -or -not $HaloClientSecret) { Fail "Halo credentials are required" }
 
 Write-Host ""
-Write-Host "  Admin bootstrap" -ForegroundColor White
-$AdminEmails = Read-Host "    Admin email(s) — comma separated (your email first)"
-if (-not $AdminEmails) { Fail "At least one admin email is required" }
-
-Write-Host ""
 Write-Host "  Deployment settings (press Enter to accept defaults)" -ForegroundColor White
 $rgInput   = Read-Host "    Resource group  [$ResourceGroup]"
 $locInput  = Read-Host "    Azure region    [$Location]"
@@ -301,7 +296,6 @@ $deployment = New-AzResourceGroupDeployment `
         entraClientSecret = $EntraClientSecret
         haloClientId      = $HaloClientId
         haloClientSecret  = $HaloClientSecret
-        adminEmails       = $AdminEmails
     } `
     -Name "deployment-kit-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
 
@@ -376,8 +370,8 @@ Write-Host "     Sign in with your Entra account."
 Write-Host ""
 Write-Host "  3. Tap Share → Add to Home Screen to install as a kiosk app."
 Write-Host ""
-Write-Host "  4. Open the Admin ⚙ tab and assign roles to your team."
-Write-Host "     Your account ($($AdminEmails.Split(',')[0].Trim())) already has Admin."
+Write-Host "  4. In Entra, assign users/groups to app roles: admin, technician, receiver."
+Write-Host "     Users must sign out/in (or refresh token) after role assignment."
 Write-Host ""
 
 $outputFile = Join-Path $PSScriptRoot "setup-output.txt"
@@ -390,7 +384,6 @@ Entra Client ID:   $EntraClientId
 Tenant ID:         $TenantId
 Resource Group:    $ResourceGroup
 SWA Name:          $SiteName
-Admin Emails:      $AdminEmails
 
 GitHub repo:       https://github.com/$repoSlug
 Actions:           https://github.com/$repoSlug/actions

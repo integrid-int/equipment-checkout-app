@@ -35,9 +35,6 @@
         },
         "secretName": "halo-client-secret"
       }
-    },
-    "adminEmails": {
-      "value": "admin@example.com"
     }
   }
 }

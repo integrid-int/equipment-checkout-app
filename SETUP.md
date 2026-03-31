@@ -74,7 +74,7 @@ The script will:
 #### What the script prompts for
 
 - Halo Client ID and Client Secret (from step 1 above)
-- Admin email(s) — comma-separated; these users get immediate admin access
+- Entra app role assignments to configure (`admin`, `technician`, `receiver`)
 - GitHub PAT with `repo` scope — create at:
   `github.com → Settings → Developer settings → Personal access tokens → Tokens (classic)`
 - Resource group / region / SWA name — press **Enter** to accept defaults
@@ -97,13 +97,15 @@ The script installs what it can automatically. If auto-install fails, install ma
 2. **Open the app URL** printed in the summary (also saved to `setup-output.txt`)
    Sign in with your Entra / Microsoft 365 account
 
-3. **Assign roles** — go to the **Admin ⚙️** tab and add your team:
+3. **Assign roles in Entra** (app registration / enterprise app):
 
-   | Role | Who gets it | Access |
-   |------|-------------|--------|
-   | **Admin** | Your email (already set via `ADMIN_EMAILS`) | Everything + role management |
-   | **Technician** | Field techs | Job, Pull Kit, Return, Stock |
-   | **Receiver** | Warehouse / receiving staff | Receive POs, Stock |
+| Role value | Who gets it | Access |
+|------------|-------------|--------|
+| **admin** | App admins | Everything + admin pages |
+| **technician** | Field techs | Job, Pull Kit, Return, Stock |
+| **receiver** | Warehouse / receiving staff | Receive POs, Stock |
+
+Create these app roles on your Entra app registration, then assign users/groups in the Enterprise Application for this app.
 
 4. **iOS kiosk setup** (iPad / iPhone):
    - Open **Safari** (not Chrome) and navigate to the app URL
@@ -169,7 +171,7 @@ src/
     ReturnPage.tsx      ← Scan items back to stock
     ReceivePage.tsx     ← Receive items against a PO
     StockPage.tsx       ← Browse current stock levels
-    AdminPage.tsx       ← Manage user role assignments
+    AdminPage.tsx       ← Role setup guidance (managed in Entra)
   components/
     BarcodeScanner.tsx  ← Camera scanner (@zxing/browser, iOS Safari compatible)
     NavBar.tsx          ← Header + role-filtered bottom tabs
@@ -185,11 +187,10 @@ api/
   return/             ← POST /api/return
   purchase-orders/    ← GET  /api/purchase-orders
   receive/            ← POST /api/receive
-  me/                 ← GET  /api/me (user + role)
-  admin-roles/        ← GET/POST/DELETE /api/admin-roles
+  me/                 ← GET  /api/me (user + role claim)
   shared/
     haloClient.ts     ← Halo PSA OAuth2 token + fetch helpers
-    roleStore.ts      ← Azure Table Storage role CRUD
+    auth.ts           ← Entra claim parsing + role authorization
 
 azuredeploy.json      ← ARM template (SWA + Storage Account)
 setup.ps1             ← Automated end-to-end setup script
@@ -203,10 +204,9 @@ deploy.ps1            ← Lightweight deploy-only script (Windows)
 
 | Role | Tabs | Can do |
 |------|------|--------|
-| **Admin** | All tabs | Full access + assign/remove roles |
+| **Admin** | All tabs | Full access + admin pages |
 | **Technician** | Job, Pull Kit, Return, Stock | Pull deployment kits, return unused items |
 | **Receiver** | Receive, Stock | Receive POs into stock, view inventory |
 
-- Users with no role see a **"pending access"** screen after sign-in
-- Emails listed in `ADMIN_EMAILS` app setting always have admin access regardless of the role table
-- Role changes take effect on the user's next page load
+- Users with no recognized app role claim see a **"pending access"** screen after sign-in
+- Assign app roles in Entra; role changes take effect after token refresh (sign out/in)

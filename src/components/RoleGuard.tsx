@@ -30,7 +30,9 @@ export default function RoleGuard({ roles, children, silent = false }: Props) {
         <p className="text-gray-500 text-sm">
           You're signed in as <strong>{email}</strong>, but you haven't been assigned a role yet.
         </p>
-        <p className="text-gray-400 text-sm">Ask an admin to assign you a role in the app.</p>
+        <p className="text-gray-400 text-sm">
+          Ask your Entra app administrator to assign you an app role.
+        </p>
       </div>
     );
   }

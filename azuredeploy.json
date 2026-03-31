@@ -45,10 +45,6 @@
     "haloClientSecret": {
       "type": "securestring",
       "metadata": { "description": "Halo PSA API client secret" }
-    },
-    "adminEmails": {
-      "type": "string",
-      "metadata": { "description": "Comma-separated email addresses that are always admins (bootstraps first admin)" }
     }
   },
   "variables": {
@@ -68,14 +64,6 @@
         "allowBlobPublicAccess": false,
         "supportsHttpsTrafficOnly": true
       }
-    },
-    {
-      "type": "Microsoft.Storage/storageAccounts/tableServices/tables",
-      "apiVersion": "2023-01-01",
-      "name": "[concat(variables('storageAccountName'), '/default/userroles')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
-      ]
     },
     {
       "type": "Microsoft.Web/staticSites",
@@ -105,7 +93,6 @@
         "ENTRA_CLIENT_SECRET": "[parameters('entraClientSecret')]",
         "ENTRA_TENANT_ID": "[parameters('entraTenantId')]",
         "ENTRA_ISSUER_URL": "[variables('issuerUrl')]",
-        "ADMIN_EMAILS": "[parameters('adminEmails')]",
         "AZURE_STORAGE_CONNECTION_STRING": "[concat('DefaultEndpointsProtocol=https;AccountName=', variables('storageAccountName'), ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-01-01').keys[0].value, ';EndpointSuffix=core.windows.net')]"
       }
     }

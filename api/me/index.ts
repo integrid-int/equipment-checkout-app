@@ -5,7 +5,7 @@
  */
 
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
-import { getUserRole } from "../shared/roleStore";
+import { getCallerRole } from "../shared/auth";
 
 app.http("me", {
   methods: ["GET"],
@@ -39,7 +39,7 @@ app.http("me", {
         return { status: 400, jsonBody: { error: "Could not determine user email from token" } };
       }
 
-      const role = await getUserRole(email);
+      const role = getCallerRole(req);
 
       return {
         status: 200,
