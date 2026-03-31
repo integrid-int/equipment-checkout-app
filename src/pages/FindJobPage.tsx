@@ -22,9 +22,23 @@ export default function FindJobPage() {
   const [error, setError] = useState<string | null>(null);
 
   const hydrateTicketAttachedItems = useCallback(async (ticket: HaloTicket): Promise<HaloTicket> => {
-    const attached = ticket.attachedItems ?? [];
+    // Always re-fetch by numeric ID so attached items are present even when the
+    // user selected this ticket from a non-numeric search result payload.
+    let sourceTicket = ticket;
+    try {
+      const detailRes = await fetch(`/api/tickets?search=${encodeURIComponent(String(ticket.id))}`);
+      if (detailRes.ok) {
+        const detailData = (await detailRes.json()) as { tickets?: HaloTicket[] };
+        const exact = (detailData.tickets ?? []).find((t) => t.id === ticket.id);
+        if (exact) sourceTicket = exact;
+      }
+    } catch {
+      // Keep fallback behavior with the selected ticket object.
+    }
+
+    const attached = sourceTicket.attachedItems ?? [];
     if (attached.length === 0) {
-      return { ...ticket, attachedItems: [] };
+      return { ...sourceTicket, attachedItems: [] };
     }
 
     const enriched = await Promise.all(
@@ -61,7 +75,7 @@ export default function FindJobPage() {
       })
     );
 
-    return { ...ticket, attachedItems: enriched };
+    return { ...sourceTicket, attachedItems: enriched };
   }, []);
 
   const searchTickets = useCallback(async (q: string) => {
@@ -91,7 +105,12 @@ export default function FindJobPage() {
   async function selectTicket(t: HaloTicket) {
     setSelectingTicketId(t.id);
     try {
-      const hydratedTicket = await hydrateTicketAttachedItems(t);
+      const latestRes = await fetch(`/api/tickets?search=${encodeURIComponent(String(t.id))}`);
+      const latestData = latestRes.ok
+        ? ((await latestRes.json()) as { tickets: HaloTicket[] })
+        : null;
+      const latestTicket = latestData?.tickets?.find((ticket) => ticket.id === t.id) ?? t;
+      const hydratedTicket = await hydrateTicketAttachedItems(latestTicket);
       setTicket(hydratedTicket, { seedFromAttachedItems: true });
       setResults([]);
       setQuery("");
