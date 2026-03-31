@@ -31,8 +31,6 @@ jobs:
       - name: Patch staticwebapp.config.json with tenant ID
         run: |
           sed -i "s|YOUR_TENANT_ID|${{ secrets.ENTRA_TENANT_ID }}|g" staticwebapp.config.json
-          echo "Patched staticwebapp.config.json:"
-          cat staticwebapp.config.json
 
       - name: Install frontend dependencies
         run: npm ci --no-fund
