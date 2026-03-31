@@ -30,7 +30,7 @@ app.http("tickets", {
       const ticketId = parseInt(search, 10);
       if (!isNaN(ticketId) && String(ticketId) === search) {
         try {
-          const ticket = await haloGet<HaloTicket>(`/Tickets/${ticketId}`);
+          const ticket = await haloGet<HaloTicket>(`/tickets/${ticketId}`);
           ctx.log(`Ticket ${ticketId} found by direct ID lookup`);
           return {
             status: 200,
@@ -50,7 +50,7 @@ app.http("tickets", {
       if (search) params.search = search;
 
       ctx.log(`Searching tickets with params: ${JSON.stringify(params)}`);
-      const data = await haloGet<{ tickets: HaloTicket[]; record_count: number }>("/Tickets", params);
+      const data = await haloGet<{ tickets: HaloTicket[]; record_count: number }>("/tickets", params);
       ctx.log(`Halo returned ${data.record_count ?? 0} tickets`);
 
       return {
