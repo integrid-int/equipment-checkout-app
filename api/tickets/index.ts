@@ -30,23 +30,40 @@ app.http("tickets", {
       // with client credentials) and just use the list endpoint with search param.
       // The search param matches ticket IDs in the list response.
 
-      // Text search — try with minimal params first to debug
-      const params: Record<string, string> = {};
+      // Search with includedetails to discover if ticket items are returned
+      const params: Record<string, string> = {
+        includedetails: "true",
+      };
       if (search) params.search = search;
-      // Note: open_only removed temporarily for debugging
 
       ctx.log(`Searching tickets with params: ${JSON.stringify(params)}`);
 
-      // Use raw fetch via haloGet but log the full response shape
       const rawData = await haloGet<Record<string, unknown>>("/Tickets", params);
-      const keys = Object.keys(rawData);
-      ctx.log(`Halo /Tickets response keys: [${keys.join(", ")}]`);
-      ctx.log(`Halo /Tickets raw response (first 500 chars): ${JSON.stringify(rawData).substring(0, 500)}`);
 
-      const tickets = (rawData.tickets ?? []) as HaloTicket[];
+      const ticketsArray = (rawData.tickets ?? []) as Record<string, unknown>[];
       const total = (rawData.record_count ?? 0) as number;
 
-      ctx.log(`Parsed ${tickets.length} tickets, record_count=${total}`);
+      // Discovery: log ALL keys on the first ticket to find item-related fields
+      if (ticketsArray.length > 0) {
+        const firstTicket = ticketsArray[0];
+        const allKeys = Object.keys(firstTicket);
+        ctx.log(`Ticket keys (${allKeys.length} total): [${allKeys.join(", ")}]`);
+
+        // Look for item/line-related fields
+        const itemKeys = allKeys.filter(k =>
+          k.includes("item") || k.includes("line") || k.includes("charge") ||
+          k.includes("product") || k.includes("quote") || k.includes("bill")
+        );
+        ctx.log(`Item-related keys: [${itemKeys.join(", ")}]`);
+
+        // Log values of item-related fields
+        for (const key of itemKeys) {
+          const val = firstTicket[key];
+          ctx.log(`  ${key} = ${JSON.stringify(val)?.substring(0, 200)}`);
+        }
+      }
+
+      const tickets = ticketsArray as unknown as HaloTicket[];
 
       return {
         status: 200,
