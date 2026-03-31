@@ -1,6 +1,8 @@
 /**
  * GET /api/tickets?search=<query>
- * Search open/active Halo tickets by ID, summary, or client name.
+ * Search Halo tickets by ID, summary, or client name.
+ * If search is a number, fetches the ticket directly by ID.
+ * Otherwise performs a text search.
  */
 
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
@@ -22,8 +24,23 @@ app.http("tickets", {
   route: "tickets",
   handler: async (req: HttpRequest, ctx: InvocationContext): Promise<HttpResponseInit> => {
     try {
-      const search = req.query.get("search") ?? "";
+      const search = (req.query.get("search") ?? "").trim();
 
+      // If the search is a ticket number, fetch directly by ID
+      const ticketId = parseInt(search, 10);
+      if (!isNaN(ticketId) && String(ticketId) === search) {
+        try {
+          const ticket = await haloGet<HaloTicket>(`/Tickets/${ticketId}`);
+          return {
+            status: 200,
+            jsonBody: { tickets: [ticket], total: 1 },
+          };
+        } catch (err) {
+          ctx.log(`Ticket ${ticketId} not found by ID, falling back to text search`);
+        }
+      }
+
+      // Text search
       const params: Record<string, string> = {
         pageinate: "true",
         pagesize: "20",
@@ -31,18 +48,11 @@ app.http("tickets", {
       };
       if (search) params.search = search;
 
-      const data = await haloGet<Record<string, unknown>>("/Tickets", params);
-
-      ctx.log("Halo /Tickets response keys:", Object.keys(data));
-      ctx.log("Halo /Tickets record_count:", data.record_count);
-
-      // Halo returns tickets under "tickets" key
-      const tickets = (data.tickets ?? []) as HaloTicket[];
-      const total = (data.record_count ?? 0) as number;
+      const data = await haloGet<{ tickets: HaloTicket[]; record_count: number }>("/Tickets", params);
 
       return {
         status: 200,
-        jsonBody: { tickets, total },
+        jsonBody: { tickets: data.tickets ?? [], total: data.record_count ?? 0 },
       };
     } catch (err) {
       ctx.error("tickets error:", err);
