@@ -141,7 +141,7 @@ export default function PullKitPage() {
   if (!ticket) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 px-6 text-center">
-        <span className="text-5xl">🎫</span>
+        <span className="text-5xl">✦</span>
         <p className="font-semibold text-gray-700">No active job</p>
         <p className="text-gray-400 text-sm">Go to the Job tab to find and select a ticket first.</p>
         <button onClick={() => navigate("/job")} className="btn-primary mt-2">Find a Job</button>
@@ -165,7 +165,7 @@ export default function PullKitPage() {
         disabled={lookingUp}
         className="w-full bg-brand-500 hover:bg-brand-600 active:scale-95 text-white rounded-2xl py-5 flex flex-col items-center gap-1.5 shadow-md transition-all disabled:opacity-60"
       >
-        <span className="text-3xl">📦</span>
+        <span className="text-3xl">▤</span>
         <span className="font-semibold">{lookingUp ? "Looking up item…" : "Scan Item"}</span>
         <span className="text-brand-100 text-xs">Scan barcode or serial number</span>
       </button>
@@ -225,7 +225,7 @@ export default function PullKitPage() {
 
       {pullList.length === 0 && (
         <div className="text-center py-10 text-gray-300">
-          <p className="text-4xl mb-2">📭</p>
+          <p className="text-4xl mb-2">—</p>
           <p className="text-sm">No items yet — scan something</p>
         </div>
       )}

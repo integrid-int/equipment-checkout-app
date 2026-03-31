@@ -64,7 +64,7 @@ export default function StockPage() {
       )}
 
       {error && (
-        <p className="text-red-600 text-sm bg-red-50 rounded-xl px-3 py-2 mb-3">{error}</p>
+        <p className="text-red-600 text-sm bg-red-50 rounded-lg px-3 py-2 mb-3">{error}</p>
       )}
 
       <div className="flex flex-col gap-2">
@@ -85,7 +85,7 @@ export default function StockPage() {
                 )}
               </div>
             </div>
-            <span className={`shrink-0 text-sm font-bold px-2.5 py-1 rounded-xl ${stockColor(item.count)}`}>
+            <span className={`shrink-0 text-sm font-bold px-2.5 py-1 rounded-lg ${stockColor(item.count)}`}>
               {item.count}
             </span>
           </div>
@@ -93,7 +93,7 @@ export default function StockPage() {
 
         {!loading && items.length === 0 && (
           <div className="text-center py-12 text-gray-400">
-            <p className="text-3xl mb-2">🗄️</p>
+            <p className="text-3xl mb-2">—</p>
             <p className="text-sm">No items found</p>
           </div>
         )}

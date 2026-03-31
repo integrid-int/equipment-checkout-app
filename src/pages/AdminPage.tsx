@@ -215,7 +215,7 @@ export default function AdminPage() {
       </div>
 
       {toast && (
-        <div className="fixed bottom-24 inset-x-4 rounded-2xl py-3 px-4 text-center bg-gray-800 text-white font-medium shadow-lg z-50">
+        <div className="fixed bottom-24 inset-x-4 rounded-2xl py-3 px-4 text-center bg-green-600 text-white font-medium shadow-lg z-50">
           {toast}
         </div>
       )}

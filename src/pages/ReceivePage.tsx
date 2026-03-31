@@ -203,7 +203,7 @@ export default function ReceivePage() {
             onClick={() => setScanning(true)}
             className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-2xl py-5 flex flex-col items-center gap-1.5 shadow-md transition-all"
           >
-            <span className="text-3xl">📬</span>
+            <span className="text-3xl">↓</span>
             <span className="font-semibold">Scan PO Barcode</span>
             <span className="text-emerald-100 text-xs">Scan the purchase order barcode</span>
           </button>
@@ -278,7 +278,7 @@ export default function ReceivePage() {
 
           {!loadingLines && entries.length === 0 && (
             <div className="text-center py-10 text-gray-400">
-              <p className="text-3xl mb-2">✅</p>
+              <p className="text-3xl mb-2">✓</p>
               <p className="text-sm">All lines on this PO are fully received</p>
             </div>
           )}

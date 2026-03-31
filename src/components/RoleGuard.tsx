@@ -25,7 +25,7 @@ export default function RoleGuard({ roles, children, silent = false }: Props) {
     // Authenticated but no role assigned
     return (
       <div className="flex flex-col items-center justify-center min-h-[80vh] px-8 text-center gap-4">
-        <span className="text-5xl">⏳</span>
+        <span className="text-5xl">—</span>
         <h2 className="text-xl font-bold text-gray-800">Access Pending</h2>
         <p className="text-gray-500 text-sm">
           You're signed in as <strong>{email}</strong>, but you haven't been assigned a role yet.
@@ -39,7 +39,7 @@ export default function RoleGuard({ roles, children, silent = false }: Props) {
     if (silent) return null;
     return (
       <div className="flex flex-col items-center justify-center min-h-[80vh] px-8 text-center gap-3">
-        <span className="text-4xl">🔒</span>
+        <span className="text-4xl">—</span>
         <h2 className="text-lg font-bold text-gray-700">Access Denied</h2>
         <p className="text-gray-400 text-sm">Your role ({role}) doesn't have access to this section.</p>
       </div>

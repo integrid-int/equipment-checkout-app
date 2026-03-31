@@ -71,12 +71,12 @@ export default function FindJobPage() {
             </p>
           )}
           <div className="flex gap-2 mt-3">
-            <button onClick={handleStartPull} className="flex-1 bg-white text-brand-600 font-semibold rounded-xl py-2.5 text-sm">
+            <button onClick={handleStartPull} className="flex-1 bg-white text-brand-600 font-semibold rounded-lg py-2.5 text-sm">
               Continue Pull →
             </button>
             <button
               onClick={() => { if (confirm("Clear active job and pull list?")) clearJob(); }}
-              className="bg-white/20 text-white rounded-xl px-3 py-2.5 text-sm"
+              className="bg-white/20 text-white rounded-lg px-3 py-2.5 text-sm"
             >
               Clear
             </button>
@@ -90,7 +90,7 @@ export default function FindJobPage() {
           onClick={() => setScanning(true)}
           className="w-full bg-brand-500 hover:bg-brand-600 active:scale-95 text-white rounded-2xl py-5 flex flex-col items-center gap-1.5 shadow-md transition-all"
         >
-          <span className="text-3xl">🎫</span>
+          <span className="text-3xl">✦</span>
           <span className="font-semibold">Scan Job Barcode</span>
           <span className="text-brand-100 text-xs">Scan ticket QR or barcode</span>
         </button>

@@ -43,7 +43,7 @@ export default function NavBar() {
         <div className="text-right">
           <p className="text-white/60 text-xs truncate max-w-[140px]">{displayName}</p>
           {role && (
-            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-lg ${
               role === "admin"      ? "bg-brand-500/30 text-brand-300" :
               role === "technician" ? "bg-accent-500/30 text-accent-300" :
                                       "bg-emerald-500/30 text-emerald-300"
@@ -62,7 +62,7 @@ export default function NavBar() {
             to={to}
             className={({ isActive }) =>
               `flex-1 flex flex-col items-center gap-0.5 py-2 text-xs font-medium transition-colors relative ${
-                isActive ? "text-brand-500" : "text-[#7A7A9D]"
+                isActive ? "text-brand-500" : "text-gray-400"
               }`
             }
           >

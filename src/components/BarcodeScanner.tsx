@@ -135,12 +135,12 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="w-64 h-48 border-2 border-white/80 rounded-xl relative">
             {/* Corner accents */}
-            <span className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-blue-400 rounded-tl-lg" />
-            <span className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-blue-400 rounded-tr-lg" />
-            <span className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-blue-400 rounded-bl-lg" />
-            <span className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-blue-400 rounded-br-lg" />
+            <span className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-brand-300 rounded-tl-lg" />
+            <span className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-brand-300 rounded-tr-lg" />
+            <span className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-brand-300 rounded-bl-lg" />
+            <span className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-brand-300 rounded-br-lg" />
             {/* Scan line animation */}
-            <div className="absolute inset-x-2 top-0 h-0.5 bg-blue-400 animate-scan-line" />
+            <div className="absolute inset-x-2 top-0 h-0.5 bg-brand-300 animate-scan-line" />
           </div>
           <p className="absolute bottom-24 text-white/80 text-sm text-center px-8">
             Point at any barcode or QR code
@@ -171,7 +171,7 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
               onClick={() => setSelectedCameraId(cam.deviceId)}
               className={`shrink-0 px-3 py-1.5 rounded-full text-sm font-medium ${
                 selectedCameraId === cam.deviceId
-                  ? "bg-blue-500 text-white"
+                  ? "bg-brand-500 text-white"
                   : "bg-white/20 text-white"
               }`}
             >
