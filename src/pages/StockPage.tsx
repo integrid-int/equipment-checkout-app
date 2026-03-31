@@ -78,7 +78,7 @@ export default function StockPage() {
               <p className="font-medium text-gray-900 truncate">{item.name}</p>
               <div className="flex items-center gap-2 mt-0.5">
                 {item.serialized && (
-                  <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-md">Serialized</span>
+                  <span className="text-xs bg-brand-50 text-brand-500 px-1.5 py-0.5 rounded-md">Serialized</span>
                 )}
                 {item.barcode && (
                   <span className="text-xs text-gray-400 font-mono">{item.barcode}</span>

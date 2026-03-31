@@ -5,13 +5,26 @@ export default {
     extend: {
       colors: {
         brand: {
-          50:  "#eff6ff",
-          100: "#dbeafe",
-          500: "#3b82f6",
-          600: "#2563eb",
-          700: "#1d4ed8",
-          900: "#1e3a8a",
+          50:  "#E8E8FF",
+          100: "#d7d6fe",
+          300: "#9B9EFC",
+          500: "#5E59FA",
+          600: "#4D48D9",
+          700: "#3E42AF",
+          900: "#16192C",
         },
+        accent: {
+          300: "#85E7FF",
+          500: "#0ACFFF",
+          700: "#1A82B6",
+        },
+      },
+      fontFamily: {
+        sans: ["Poppins", "system-ui", "sans-serif"],
+        mono: ["Chivo Mono", "ui-monospace", "monospace"],
+      },
+      borderColor: {
+        DEFAULT: "#dfdefe",
       },
       // Larger touch targets for iPad/iPhone
       minHeight: {

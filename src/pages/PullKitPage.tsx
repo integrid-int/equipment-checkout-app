@@ -156,18 +156,18 @@ export default function PullKitPage() {
       <div className="bg-brand-50 border border-brand-100 rounded-2xl px-4 py-3">
         <p className="text-xs text-brand-500 font-medium">Pulling kit for</p>
         <p className="font-bold text-brand-900">#{ticket.id} — {ticket.summary}</p>
-        <p className="text-brand-600 text-sm">{ticket.client_name}</p>
+        <p className="text-brand-500 text-sm">{ticket.client_name}</p>
       </div>
 
       {/* Scan button */}
       <button
         onClick={() => setScanning(true)}
         disabled={lookingUp}
-        className="w-full bg-brand-600 hover:bg-brand-700 active:scale-95 text-white rounded-2xl py-5 flex flex-col items-center gap-1.5 shadow-md transition-all disabled:opacity-60"
+        className="w-full bg-brand-500 hover:bg-brand-600 active:scale-95 text-white rounded-2xl py-5 flex flex-col items-center gap-1.5 shadow-md transition-all disabled:opacity-60"
       >
         <span className="text-3xl">📦</span>
         <span className="font-semibold">{lookingUp ? "Looking up item…" : "Scan Item"}</span>
-        <span className="text-blue-200 text-xs">Scan barcode or serial number</span>
+        <span className="text-brand-100 text-xs">Scan barcode or serial number</span>
       </button>
 
       {/* Manual search */}

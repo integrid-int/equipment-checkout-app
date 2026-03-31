@@ -59,19 +59,19 @@ export default function FindJobPage() {
 
       {/* Active job banner */}
       {activeTicket && (
-        <div className="bg-brand-600 rounded-2xl p-4 text-white">
-          <p className="text-xs text-blue-200 mb-0.5">Active Job</p>
+        <div className="bg-brand-500 rounded-2xl p-4 text-white">
+          <p className="text-xs text-brand-100 mb-0.5">Active Job</p>
           <p className="font-bold text-lg leading-tight">#{activeTicket.id} — {activeTicket.summary}</p>
-          <p className="text-blue-200 text-sm mt-1">
+          <p className="text-brand-100 text-sm mt-1">
             {[activeTicket.client_name, activeTicket.site_name].filter(Boolean).join(" · ")}
           </p>
           {pullList.length > 0 && (
-            <p className="text-blue-100 text-xs mt-2">
+            <p className="text-brand-50 text-xs mt-2">
               {pullList.length} item{pullList.length !== 1 ? "s" : ""} in pull list
             </p>
           )}
           <div className="flex gap-2 mt-3">
-            <button onClick={handleStartPull} className="flex-1 bg-white text-brand-700 font-semibold rounded-xl py-2.5 text-sm">
+            <button onClick={handleStartPull} className="flex-1 bg-white text-brand-600 font-semibold rounded-xl py-2.5 text-sm">
               Continue Pull →
             </button>
             <button
@@ -88,11 +88,11 @@ export default function FindJobPage() {
       <div className="flex flex-col gap-3">
         <button
           onClick={() => setScanning(true)}
-          className="w-full bg-brand-600 hover:bg-brand-700 active:scale-95 text-white rounded-2xl py-5 flex flex-col items-center gap-1.5 shadow-md transition-all"
+          className="w-full bg-brand-500 hover:bg-brand-600 active:scale-95 text-white rounded-2xl py-5 flex flex-col items-center gap-1.5 shadow-md transition-all"
         >
           <span className="text-3xl">🎫</span>
           <span className="font-semibold">Scan Job Barcode</span>
-          <span className="text-blue-200 text-xs">Scan ticket QR or barcode</span>
+          <span className="text-brand-100 text-xs">Scan ticket QR or barcode</span>
         </button>
 
         <div className="relative">
@@ -139,7 +139,7 @@ export default function FindJobPage() {
               onClick={() => selectTicket(t)}
               className="bg-white border border-gray-100 rounded-2xl p-4 text-left shadow-sm flex items-start gap-3 active:scale-[0.99] transition-all"
             >
-              <div className="bg-brand-100 text-brand-700 font-bold rounded-xl px-2.5 py-1 text-sm shrink-0">
+              <div className="bg-brand-100 text-brand-600 font-bold rounded-xl px-2.5 py-1 text-sm shrink-0">
                 #{t.id}
               </div>
               <div className="flex-1 min-w-0">

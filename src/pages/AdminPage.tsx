@@ -12,8 +12,8 @@ interface RoleEntry {
 }
 
 const ROLE_LABELS: Record<string, { label: string; color: string; description: string }> = {
-  admin:      { label: "Admin",      color: "bg-purple-100 text-purple-700", description: "Full access + role management" },
-  technician: { label: "Technician", color: "bg-blue-100 text-blue-700",     description: "Pull kits, returns, view stock" },
+  admin:      { label: "Admin",      color: "bg-brand-100 text-brand-700", description: "Full access + role management" },
+  technician: { label: "Technician", color: "bg-accent-300/20 text-accent-700",     description: "Pull kits, returns, view stock" },
   receiver:   { label: "Receiver",   color: "bg-emerald-100 text-emerald-700", description: "Receive POs, view stock" },
 };
 
@@ -168,7 +168,7 @@ export default function AdminPage() {
       <div>
         <div className="flex items-center justify-between mb-3">
           <p className="text-sm font-semibold text-gray-700">Current Users ({users.length})</p>
-          <button onClick={fetchUsers} className="text-xs text-brand-600">Refresh</button>
+          <button onClick={fetchUsers} className="text-xs text-brand-500">Refresh</button>
         </div>
 
         {error && <p className="text-red-600 text-sm bg-red-50 rounded-xl px-3 py-2 mb-3">{error}</p>}

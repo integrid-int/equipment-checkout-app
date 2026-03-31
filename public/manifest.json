@@ -4,8 +4,8 @@
   "description": "Equipment room inventory checkout via Halo PSA",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#1e3a8a",
-  "theme_color": "#1d4ed8",
+  "background_color": "#f7fafc",
+  "theme_color": "#16192C",
   "orientation": "portrait-primary",
   "icons": [
     { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },

@@ -191,7 +191,7 @@ export default function ReturnPage() {
             <div className="flex items-center gap-2">
               <div className="flex-1 bg-brand-50 rounded-xl px-3 py-2">
                 <p className="text-sm font-semibold text-brand-900">#{linkedTicket.id} — {linkedTicket.summary}</p>
-                <p className="text-xs text-brand-600">{linkedTicket.client_name}</p>
+                <p className="text-xs text-brand-500">{linkedTicket.client_name}</p>
               </div>
               <button onClick={() => setLinkedTicket(null)} className="text-gray-400 text-sm">Clear</button>
             </div>

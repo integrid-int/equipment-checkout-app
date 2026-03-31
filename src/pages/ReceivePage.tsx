@@ -295,7 +295,7 @@ export default function ReceivePage() {
                     </p>
                   </div>
                   {entry.line.serialized && (
-                    <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-md ml-2 shrink-0">Serialized</span>
+                    <span className="text-xs bg-brand-50 text-brand-500 px-2 py-0.5 rounded-md ml-2 shrink-0">Serialized</span>
                   )}
                 </div>
 
@@ -318,19 +318,19 @@ export default function ReceivePage() {
 
                 {/* Serial numbers for serialized items */}
                 {entry.line.serialized && entry.quantityReceived > 0 && (
-                  <div className="bg-blue-50 rounded-xl p-3">
+                  <div className="bg-brand-50 rounded-xl p-3">
                     <div className="flex items-center justify-between mb-2">
-                      <p className="text-xs font-medium text-blue-700">
+                      <p className="text-xs font-medium text-brand-700">
                         Serial numbers ({entry.serialNumbers.length}/{entry.quantityReceived})
                       </p>
-                      <button onClick={() => openSerialModal(index)} className="text-xs text-blue-600 font-medium">+ Add</button>
+                      <button onClick={() => openSerialModal(index)} className="text-xs text-brand-500 font-medium">+ Add</button>
                     </div>
                     {entry.serialNumbers.length > 0 && (
                       <div className="flex flex-wrap gap-1.5">
                         {entry.serialNumbers.map((sn, j) => (
-                          <span key={j} className="flex items-center gap-1 bg-white border border-blue-200 text-blue-800 text-xs font-mono rounded-lg px-2 py-0.5">
+                          <span key={j} className="flex items-center gap-1 bg-white border border-brand-100 text-brand-700 text-xs font-mono rounded-lg px-2 py-0.5">
                             {sn}
-                            <button onClick={() => removeSerial(index, j)} className="text-blue-400 ml-0.5">✕</button>
+                            <button onClick={() => removeSerial(index, j)} className="text-brand-300 ml-0.5">✕</button>
                           </span>
                         ))}
                       </div>
