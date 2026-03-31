@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from "react";
 import type { HaloItem } from "../types/halo";
+import { useDebounce } from "../hooks/useDebounce";
 
 export default function StockPage() {
   const [items, setItems] = useState<HaloItem[]>([]);
@@ -12,6 +13,7 @@ export default function StockPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const debouncedQuery = useDebounce(query, 300);
   const [page, setPage] = useState(1);
   const pageSize = 25;
 
@@ -21,7 +23,7 @@ export default function StockPage() {
     setError(null);
 
     const params = new URLSearchParams({ page: String(page), pagesize: String(pageSize) });
-    if (query) params.set("search", query);
+    if (debouncedQuery) params.set("search", debouncedQuery);
 
     fetch(`/api/items?${params}`)
       .then((r) => r.json())
@@ -35,7 +37,7 @@ export default function StockPage() {
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
-  }, [query, page]);
+  }, [debouncedQuery, page]);
 
   useEffect(() => { setPage(1); }, [query]);
 

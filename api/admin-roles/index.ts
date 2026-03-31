@@ -7,32 +7,8 @@
  */
 
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
-import { getUserRole, listRoles, setRole, deleteRole, AppRole } from "../shared/roleStore";
-
-async function getCallerEmail(req: HttpRequest): Promise<string | null> {
-  const header = req.headers.get("x-ms-client-principal");
-  if (!header) return null;
-  try {
-    const p = JSON.parse(Buffer.from(header, "base64").toString("utf8")) as {
-      userDetails: string;
-      claims?: Array<{ typ: string; val: string }>;
-    };
-    return (
-      p.claims?.find((c) => c.typ === "preferred_username")?.val ??
-      p.claims?.find((c) => c.typ === "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress")?.val ??
-      p.userDetails
-    );
-  } catch {
-    return null;
-  }
-}
-
-async function requireAdmin(req: HttpRequest): Promise<string | null> {
-  const email = await getCallerEmail(req);
-  if (!email) return null;
-  const role = await getUserRole(email);
-  return role === "admin" ? email : null;
-}
+import { listRoles, setRole, deleteRole, AppRole } from "../shared/roleStore";
+import { requireRole } from "../shared/auth";
 
 app.http("admin-roles", {
   methods: ["GET", "POST", "DELETE"],
@@ -40,10 +16,11 @@ app.http("admin-roles", {
   route: "admin-roles",
   handler: async (req: HttpRequest, ctx: InvocationContext): Promise<HttpResponseInit> => {
     try {
-      const callerEmail = await requireAdmin(req);
-      if (!callerEmail) {
+      const caller = await requireRole(req, ["admin"]);
+      if (!caller) {
         return { status: 403, jsonBody: { error: "Admin role required" } };
       }
+      const callerEmail = caller.email;
 
       if (req.method === "GET") {
         const roles = await listRoles();
@@ -80,7 +57,7 @@ app.http("admin-roles", {
       return { status: 405, jsonBody: { error: "Method not allowed" } };
     } catch (err) {
       ctx.error("admin-roles error:", err);
-      return { status: 500, jsonBody: { error: (err as Error).message } };
+      return { status: 500, jsonBody: { error: "Internal server error" } };
     }
   },
 });

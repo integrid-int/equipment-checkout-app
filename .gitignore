@@ -1,0 +1,8 @@
+node_modules/
+dist/
+api/dist/
+.env
+.env.local
+*.local
+.azure/
+setup-output.txt

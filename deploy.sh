@@ -130,4 +130,4 @@ echo -e "${YELLOW}Next step:${NC} Add this Redirect URI to your Entra app regist
 echo -e "  portal.azure.com → Azure AD → App registrations → your app → Authentication"
 echo -e "  Add redirect URI: ${BOLD}$REDIRECT_URI${NC}"
 echo ""
-echo -e "${YELLOW}Then push to '${BRANCH}' to trigger the first deployment.${NC}"
+echo -e "${YELLOW}Then push to 'main' to trigger the first deployment.${NC}"

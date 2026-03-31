@@ -64,7 +64,7 @@ app.http("purchase-orders", {
       };
     } catch (err) {
       ctx.error("purchase-orders error:", err);
-      return { status: 500, jsonBody: { error: (err as Error).message } };
+      return { status: 500, jsonBody: { error: "Internal server error" } };
     }
   },
 });

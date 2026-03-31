@@ -33,9 +33,6 @@ if (-not $SiteName) { $SiteName = "equipment-checkout" }
 $RepoUrl      = Read-Host "  GitHub repo URL      (e.g. https://github.com/org/repo)"
 if (-not $RepoUrl) { Write-Fail "Repository URL is required" }
 
-$Branch       = Read-Host "  GitHub branch        [main]"
-if (-not $Branch) { $Branch = "main" }
-
 Write-Host "`nEntra / Azure AD" -ForegroundColor White
 $TenantId          = Read-Host "  Tenant ID"
 if (-not $TenantId) { Write-Fail "Tenant ID is required" }
@@ -55,17 +52,8 @@ $HaloClientSecret = Read-Host "  Halo Client Secret" -AsSecureString
 $HaloClientSecretPlain = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
     [Runtime.InteropServices.Marshal]::SecureStringToBSTR($HaloClientSecret))
 
-$HaloStatusAvailable = Read-Host "  Status ID Available  [1]"
-if (-not $HaloStatusAvailable) { $HaloStatusAvailable = "1" }
-
-$HaloStatusInUse  = Read-Host "  Status ID In Use     [2]"
-if (-not $HaloStatusInUse) { $HaloStatusInUse = "2" }
-
-Write-Host "`nGitHub PAT (needs 'repo' scope)" -ForegroundColor White
-$GithubPat        = Read-Host "  GitHub PAT" -AsSecureString
-$GithubPatPlain   = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
-    [Runtime.InteropServices.Marshal]::SecureStringToBSTR($GithubPat))
-if (-not $GithubPatPlain) { Write-Fail "GitHub PAT is required" }
+$AdminEmails = Read-Host "  Admin email(s)       (comma-separated)"
+if (-not $AdminEmails) { Write-Fail "At least one admin email is required" }
 
 # ── Resource Group ─────────────────────────────────────────────────────────────
 Write-Header "Creating resource group: $RG"
@@ -80,16 +68,12 @@ $DeployOutput = az deployment group create `
   --parameters `
       siteName=$SiteName `
       location=$Location `
-      repositoryUrl=$RepoUrl `
-      repositoryBranch=$Branch `
-      repositoryToken=$GithubPatPlain `
       entraTenantId=$TenantId `
       entraClientId=$EntraClientId `
       entraClientSecret=$EntraClientSecretPlain `
       haloClientId=$HaloClientId `
       haloClientSecret=$HaloClientSecretPlain `
-      haloStatusAvailable=$HaloStatusAvailable `
-      haloStatusInUse=$HaloStatusInUse `
+      adminEmails=$AdminEmails `
   --output json | ConvertFrom-Json
 
 $SwaUrl      = $DeployOutput.properties.outputs.swaUrl.value
@@ -124,4 +108,4 @@ Write-Warn "Next step: Add this Redirect URI to your Entra app registration:"
 Write-Host "  portal.azure.com → Azure AD → App registrations → your app → Authentication"
 Write-Host "  Add redirect URI: $RedirectUri" -ForegroundColor Yellow
 Write-Host ""
-Write-Warn "Then push to '$Branch' to trigger the first deployment."
+Write-Warn "Then push to 'main' to trigger the first deployment."

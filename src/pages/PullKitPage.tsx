@@ -172,7 +172,7 @@ export default function PullKitPage() {
 
       {/* Manual search */}
       <form
-        onSubmit={(e) => { e.preventDefault(); const q = (e.currentTarget.elements.namedItem("q") as HTMLInputElement).value.trim(); if (q) lookupItem(q); }}
+        onSubmit={(e) => { e.preventDefault(); const input = e.currentTarget.elements.namedItem("q"); if (input instanceof HTMLInputElement) { const q = input.value.trim(); if (q) lookupItem(q); } }}
         className="flex gap-2"
       >
         <input name="q" type="search" className="input flex-1" placeholder="Search item by name…" />

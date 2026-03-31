@@ -4,7 +4,6 @@
  *
  * Body: {
  *   ticketId: number,
- *   pulledByEmail: string,
  *   entries: Array<{
  *     itemId: number,
  *     itemName: string,
@@ -20,6 +19,7 @@
 
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { haloGet, haloPost } from "../shared/haloClient";
+import { requireRole } from "../shared/auth";
 
 interface PullEntry {
   itemId: number;
@@ -30,7 +30,6 @@ interface PullEntry {
 
 interface PullBody {
   ticketId: number;
-  pulledByEmail: string;
   entries: PullEntry[];
 }
 
@@ -40,6 +39,11 @@ app.http("pull", {
   route: "pull",
   handler: async (req: HttpRequest, ctx: InvocationContext): Promise<HttpResponseInit> => {
     try {
+      const caller = await requireRole(req, ["admin", "technician"]);
+      if (!caller) {
+        return { status: 403, jsonBody: { error: "Technician or admin role required" } };
+      }
+
       const body = (await req.json()) as PullBody;
 
       if (!body.ticketId || !body.entries?.length) {
@@ -47,9 +51,17 @@ app.http("pull", {
       }
 
       const errors: string[] = [];
+      const successIndices: number[] = [];
 
       // Process each entry: decrement stock + validate qty
-      for (const entry of body.entries) {
+      for (let i = 0; i < body.entries.length; i++) {
+        const entry = body.entries[i];
+
+        if (!Number.isInteger(entry.quantity) || entry.quantity <= 0) {
+          errors.push(`Invalid quantity for "${entry.itemName}"`);
+          continue;
+        }
+
         try {
           // Fetch current stock
           const itemData = await haloGet<{ id: number; count: number; name: string }>(
@@ -64,19 +76,19 @@ app.http("pull", {
 
           // Update stock count
           await haloPost("/Item", [{ id: entry.itemId, count: newCount }]);
+          successIndices.push(i);
         } catch (err) {
-          errors.push(`Failed to update stock for "${entry.itemName}": ${(err as Error).message}`);
+          ctx.error(`Stock update failed for item ${entry.itemId}:`, err);
+          errors.push(`Failed to update stock for "${entry.itemName}"`);
         }
       }
 
-      if (errors.length === body.entries.length) {
+      if (successIndices.length === 0) {
         return { status: 422, jsonBody: { error: "All items failed", details: errors } };
       }
 
       // Build audit note for the ticket
-      const successEntries = body.entries.filter(
-        (e) => !errors.some((err) => err.includes(`"${e.itemName}"`))
-      );
+      const successEntries = successIndices.map((i) => body.entries[i]);
 
       const lines = successEntries.map((e) =>
         e.serialNumber
@@ -85,7 +97,7 @@ app.http("pull", {
       );
 
       const note = [
-        `Kit pulled by ${body.pulledByEmail}`,
+        `Kit pulled by ${caller.email}`,
         "",
         ...lines,
         "",
@@ -112,7 +124,7 @@ app.http("pull", {
       };
     } catch (err) {
       ctx.error("pull error:", err);
-      return { status: 500, jsonBody: { error: (err as Error).message } };
+      return { status: 500, jsonBody: { error: "Internal server error" } };
     }
   },
 });

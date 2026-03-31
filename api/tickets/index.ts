@@ -39,7 +39,7 @@ app.http("tickets", {
       };
     } catch (err) {
       ctx.error("tickets error:", err);
-      return { status: 500, jsonBody: { error: (err as Error).message } };
+      return { status: 500, jsonBody: { error: "Internal server error" } };
     }
   },
 });

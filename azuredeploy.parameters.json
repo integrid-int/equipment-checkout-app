@@ -11,20 +11,6 @@
     "sku": {
       "value": "Standard"
     },
-    "repositoryUrl": {
-      "value": "https://github.com/YOUR_ORG/equipment-checkout-app"
-    },
-    "repositoryBranch": {
-      "value": "main"
-    },
-    "repositoryToken": {
-      "reference": {
-        "keyVault": {
-          "id": "/subscriptions/YOUR_SUB_ID/resourceGroups/YOUR_RG/providers/Microsoft.KeyVault/vaults/YOUR_VAULT"
-        },
-        "secretName": "github-pat"
-      }
-    },
     "entraTenantId": {
       "value": "YOUR_TENANT_ID"
     },
@@ -50,11 +36,8 @@
         "secretName": "halo-client-secret"
       }
     },
-    "haloStatusAvailable": {
-      "value": "1"
-    },
-    "haloStatusInUse": {
-      "value": "2"
+    "adminEmails": {
+      "value": "admin@example.com"
     }
   }
 }

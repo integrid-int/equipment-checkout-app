@@ -4,7 +4,6 @@
  *
  * Body: {
  *   poId: number,
- *   receivedByEmail: string,
  *   lines: Array<{
  *     poLineId: number,
  *     itemId: number,
@@ -22,6 +21,7 @@
 
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
 import { haloGet, haloPost } from "../shared/haloClient";
+import { requireRole } from "../shared/auth";
 
 interface ReceiveLine {
   poLineId: number;
@@ -33,7 +33,6 @@ interface ReceiveLine {
 
 interface ReceiveBody {
   poId: number;
-  receivedByEmail: string;
   lines: ReceiveLine[];
 }
 
@@ -43,6 +42,11 @@ app.http("receive", {
   route: "receive",
   handler: async (req: HttpRequest, ctx: InvocationContext): Promise<HttpResponseInit> => {
     try {
+      const caller = await requireRole(req, ["admin", "receiver"]);
+      if (!caller) {
+        return { status: 403, jsonBody: { error: "Receiver or admin role required" } };
+      }
+
       const body = (await req.json()) as ReceiveBody;
 
       if (!body.poId || !body.lines?.length) {
@@ -53,7 +57,10 @@ app.http("receive", {
       const received: ReceiveLine[] = [];
 
       for (const line of body.lines) {
-        if (line.quantityReceived <= 0) continue;
+        if (!Number.isInteger(line.quantityReceived) || line.quantityReceived <= 0) {
+          errors.push(`Invalid quantity for "${line.itemName}"`);
+          continue;
+        }
 
         try {
           // Get current stock count
@@ -80,7 +87,8 @@ app.http("receive", {
 
           received.push(line);
         } catch (err) {
-          errors.push(`Failed to receive "${line.itemName}": ${(err as Error).message}`);
+          ctx.error(`Receive failed for item ${line.itemId}:`, err);
+          errors.push(`Failed to receive "${line.itemName}"`);
         }
       }
 
@@ -89,7 +97,7 @@ app.http("receive", {
       }
 
       // Build audit note
-      const lines = received.map((l) => {
+      const noteLines = received.map((l) => {
         const serials = l.serialNumbers?.length
           ? ` — SN: ${l.serialNumbers.join(", ")}`
           : "";
@@ -97,10 +105,10 @@ app.http("receive", {
       });
 
       const note = [
-        `Received by ${body.receivedByEmail}`,
+        `Received by ${caller.email}`,
         `PO #${body.poId}`,
         "",
-        ...lines,
+        ...noteLines,
       ].join("\n");
 
       await haloPost("/Actions", [
@@ -123,7 +131,7 @@ app.http("receive", {
       };
     } catch (err) {
       ctx.error("receive error:", err);
-      return { status: 500, jsonBody: { error: (err as Error).message } };
+      return { status: 500, jsonBody: { error: "Internal server error" } };
     }
   },
 });

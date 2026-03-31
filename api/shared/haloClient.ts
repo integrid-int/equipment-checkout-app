@@ -4,8 +4,9 @@
  * and refreshed automatically before expiry.
  */
 
-const HALO_BASE = "https://integrid.halopsa.com";
+const HALO_BASE = process.env.HALO_BASE_URL || "https://integrid.halopsa.com";
 const TOKEN_URL = `${HALO_BASE}/auth/token`;
+const REQUEST_TIMEOUT = 15_000; // 15 seconds
 
 interface TokenCache {
   token: string;
@@ -37,6 +38,7 @@ async function getAccessToken(): Promise<string> {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT),
   });
 
   if (!res.ok) {
@@ -64,6 +66,7 @@ export async function haloGet<T>(path: string, params?: Record<string, string>):
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT),
   });
 
   if (!res.ok) {
@@ -82,6 +85,7 @@ export async function haloPost<T>(path: string, body: unknown): Promise<T> {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT),
   });
 
   if (!res.ok) {
