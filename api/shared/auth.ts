@@ -20,6 +20,16 @@ interface ClientPrincipal {
 }
 
 const VALID_ROLES: AppRole[] = ["admin", "technician", "receiver"];
+const ROLE_ALIASES: Record<string, AppRole> = {
+  admin: "admin",
+  admins: "admin",
+  technician: "technician",
+  technicians: "technician",
+  tech: "technician",
+  techs: "technician",
+  receiver: "receiver",
+  receivers: "receiver",
+};
 
 function decodePrincipal(req: HttpRequest): ClientPrincipal | null {
   const header = req.headers.get("x-ms-client-principal");
@@ -50,7 +60,13 @@ export function getCallerEmail(req: HttpRequest): string | null {
 function normalizeRole(value: string | undefined): AppRole | null {
   if (!value) return null;
   const lower = value.trim().toLowerCase();
-  return VALID_ROLES.includes(lower as AppRole) ? (lower as AppRole) : null;
+  if (VALID_ROLES.includes(lower as AppRole)) return lower as AppRole;
+
+  // Accept common Entra app-role value variants (plural/shorthand forms).
+  const alias = ROLE_ALIASES[lower];
+  if (alias) return alias;
+
+  return null;
 }
 
 /** Resolve app role from Entra app role claims in client principal. */
@@ -75,8 +91,8 @@ export function getCallerRole(req: HttpRequest): AppRole | null {
     const exact = normalizeRole(rawRole);
     if (exact) return exact;
 
-    // Support app-role values like "DeploymentKits.Admin"
-    const suffix = rawRole.split(".").pop();
+    // Support app-role values like "DeploymentKits.Admin" or "App/receivers".
+    const suffix = rawRole.split(/[./:\\|]/).pop();
     const fromSuffix = normalizeRole(suffix);
     if (fromSuffix) return fromSuffix;
   }
