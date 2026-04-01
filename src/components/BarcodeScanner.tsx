@@ -14,9 +14,16 @@ import { NotFoundException } from "@zxing/library";
 interface Props {
   onResult: (text: string) => void;
   onClose: () => void;
+  title?: string;
+  helperText?: string;
 }
 
-export default function BarcodeScanner({ onResult, onClose }: Props) {
+export default function BarcodeScanner({
+  onResult,
+  onClose,
+  title = "Scan Barcode",
+  helperText = "Point at any barcode or QR code",
+}: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -111,7 +118,7 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
     <div className="fixed inset-0 z-50 bg-black flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between px-4 pt-safe-top py-3 bg-black/80">
-        <h2 className="text-white text-lg font-semibold">Scan Barcode</h2>
+        <h2 className="text-white text-lg font-semibold">{title}</h2>
         <button
           onClick={onClose}
           className="text-white bg-white/20 rounded-full w-9 h-9 flex items-center justify-center text-xl"
@@ -143,7 +150,7 @@ export default function BarcodeScanner({ onResult, onClose }: Props) {
             <div className="absolute inset-x-2 top-0 h-0.5 bg-brand-300 animate-scan-line" />
           </div>
           <p className="absolute bottom-24 text-white/80 text-sm text-center px-8">
-            Point at any barcode or QR code
+            {helperText}
           </p>
         </div>
 
