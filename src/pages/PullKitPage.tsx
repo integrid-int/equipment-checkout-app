@@ -3,22 +3,28 @@
  *
  * Flow:
  *  1. Scan item barcode or serial number → look up in Halo stock
- *  2a. Serialized item → confirm serial, add to list (qty 1)
+ *  2a. Serialized item → choose quantity, then scan one serial barcode per unit
  *  2b. Non-serialized item → prompt for quantity, add to list
  *  3. Review list → "Confirm Pull" → posts to API → success
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import BarcodeScanner from "../components/BarcodeScanner";
 import { useActiveJob } from "../context/ActiveJobContext";
-import type { HaloItem, PullEntry } from "../types/halo";
+import type { HaloItem } from "../types/halo";
 import { useAuth } from "../hooks/useAuth";
 
 type Modal =
   | { type: "serial"; item: HaloItem }
   | { type: "quantity"; item: HaloItem }
   | null;
+
+interface SerialScanSession {
+  item: HaloItem;
+  requiredCount: number;
+  scannedSerials: string[];
+}
 
 export default function PullKitPage() {
   const navigate = useNavigate();
@@ -31,6 +37,9 @@ export default function PullKitPage() {
   const [modal, setModal] = useState<Modal>(null);
   const [qtyInput, setQtyInput] = useState("1");
   const [serialInput, setSerialInput] = useState("");
+  const [serialSession, setSerialSession] = useState<SerialScanSession | null>(null);
+  const [serialScannerOpen, setSerialScannerOpen] = useState(false);
+  const serialCommitInFlight = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
@@ -60,7 +69,7 @@ export default function PullKitPage() {
       }
 
       if (item.serialized) {
-        setSerialInput(item.serialnumber ?? code);
+        setQtyInput("1");
         setModal({ type: "serial", item });
       } else {
         setQtyInput("1");
@@ -80,9 +89,60 @@ export default function PullKitPage() {
 
   function confirmSerial() {
     if (!modal || modal.type !== "serial") return;
-    addEntry({ item: modal.item, quantity: 1, serialNumber: serialInput.trim() });
-    showToast(`Added: ${modal.item.name}`);
+    const qty = parseInt(qtyInput, 10);
+    if (!qty || qty < 1) {
+      showToast("Enter a valid quantity", "error");
+      return;
+    }
+    if (modal.item.stockTracked !== false && qty > modal.item.count) {
+      showToast(`Only ${modal.item.count} in stock`, "error");
+      return;
+    }
+    setSerialSession({
+      item: modal.item,
+      requiredCount: qty,
+      scannedSerials: [],
+    });
+    setSerialScannerOpen(true);
     setModal(null);
+  }
+
+  function handleSerializedBarcode(code: string) {
+    if (serialCommitInFlight.current) return;
+    serialCommitInFlight.current = true;
+    setSerialSession((session) => {
+      if (!session) return session;
+
+      const serial = code.trim();
+      if (!serial) return session;
+      if (session.scannedSerials.includes(serial)) {
+        showToast(`Serial already scanned: ${serial}`, "error");
+        return session;
+      }
+      if (pullList.some((e) => e.item.id === session.item.id && e.serialNumber === serial)) {
+        showToast(`Serial already in pull list: ${serial}`, "error");
+        return session;
+      }
+
+      // Add each scanned serial exactly once to avoid duplicate line insertion.
+      addEntry({ item: session.item, quantity: 1, serialNumber: serial });
+      setSerialInput("");
+
+      const nextSerials = [...session.scannedSerials, serial];
+      if (nextSerials.length >= session.requiredCount) {
+        setSerialScannerOpen(false);
+        showToast(
+          `Added: ${session.item.name} (${nextSerials.length} serial${nextSerials.length !== 1 ? "s" : ""})`
+        );
+        return null;
+      }
+
+      return { ...session, scannedSerials: nextSerials };
+    });
+    // Guard against React StrictMode double-invocation causing duplicate addEntry.
+    setTimeout(() => {
+      serialCommitInFlight.current = false;
+    }, 0);
   }
 
   function confirmQty() {
@@ -98,8 +158,37 @@ export default function PullKitPage() {
     setModal(null);
   }
 
+  function hasInvalidSerializedEntries(): boolean {
+    return pullList.some(
+      (e) => e.item.serialized && (!e.serialNumber?.trim() || e.quantity !== 1)
+    );
+  }
+
+  function convertSerializedLineToScanSession(entry: {
+    item: HaloItem;
+    quantity: number;
+    serialNumber?: string;
+  }) {
+    if (entry.quantity < 1 || entry.serialNumber) return;
+    setSerialSession({
+      item: entry.item,
+      requiredCount: entry.quantity,
+      scannedSerials: [],
+    });
+    removeEntry(entry.item.id);
+    setSerialScannerOpen(true);
+  }
+
   async function handleConfirmPull() {
     if (!ticket || pullList.length === 0) return;
+    if (serialSession) {
+      showToast("Finish scanning serialized items before confirming pull", "error");
+      return;
+    }
+    if (hasInvalidSerializedEntries()) {
+      showToast("Serialized items require serial scans for each quantity before pull", "error");
+      return;
+    }
     setSubmitting(true);
     try {
       const res = await fetch("/api/pull", {
@@ -162,7 +251,7 @@ export default function PullKitPage() {
       {/* Scan button */}
       <button
         onClick={() => setScanning(true)}
-        disabled={lookingUp}
+        disabled={lookingUp || Boolean(serialSession)}
         className="w-full bg-brand-500 hover:bg-brand-600 active:scale-95 text-white rounded-2xl py-5 flex flex-col items-center gap-1.5 shadow-md transition-all disabled:opacity-60"
       >
         <span className="text-3xl">▤</span>
@@ -175,8 +264,16 @@ export default function PullKitPage() {
         onSubmit={(e) => { e.preventDefault(); const input = e.currentTarget.elements.namedItem("q"); if (input instanceof HTMLInputElement) { const q = input.value.trim(); if (q) lookupItem(q); } }}
         className="flex gap-2"
       >
-        <input name="q" type="search" className="input flex-1" placeholder="Search item by name…" />
-        <button type="submit" className="btn-secondary px-4">Add</button>
+        <input
+          name="q"
+          type="search"
+          className="input flex-1"
+          placeholder="Search item by name…"
+          disabled={Boolean(serialSession)}
+        />
+        <button type="submit" className="btn-secondary px-4" disabled={Boolean(serialSession)}>
+          Add
+        </button>
       </form>
 
       {lookupError && (
@@ -199,6 +296,18 @@ export default function PullKitPage() {
                 <p className="font-medium text-gray-900 truncate">{entry.item.name}</p>
                 {entry.serialNumber ? (
                   <p className="text-xs text-gray-400 font-mono">SN: {entry.serialNumber}</p>
+                ) : entry.item.serialized ? (
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded px-2 py-1">
+                      Serial scans required ({entry.quantity})
+                    </span>
+                    <button
+                      onClick={() => convertSerializedLineToScanSession(entry)}
+                      className="text-xs text-brand-600"
+                    >
+                      Scan now
+                    </button>
+                  </div>
                 ) : (
                   <div className="flex items-center gap-2 mt-1">
                     <button
@@ -237,6 +346,11 @@ export default function PullKitPage() {
           Ticket includes {ticket.attachedItems.length} attached item{ticket.attachedItems.length !== 1 ? "s" : ""}. You can scan additional items to attach before checkout.
         </p>
       )}
+      {hasInvalidSerializedEntries() && !serialSession && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+          One or more serialized ticket items still need scanned serials before pull can be confirmed.
+        </p>
+      )}
 
       {pullList.length === 0 && (
         <div className="text-center py-10 text-gray-300">
@@ -260,6 +374,56 @@ export default function PullKitPage() {
 
       {/* Scanner */}
       {scanning && <BarcodeScanner onResult={handleBarcode} onClose={() => setScanning(false)} />}
+      {serialScannerOpen && serialSession && (
+        <BarcodeScanner
+          onResult={handleSerializedBarcode}
+          onClose={() => {
+            setSerialScannerOpen(false);
+            showToast("Serial scan canceled", "error");
+          }}
+          title={`Scan Serials (${serialSession.scannedSerials.length}/${serialSession.requiredCount})`}
+          helperText={`Scan ${serialSession.requiredCount - serialSession.scannedSerials.length} more serial barcode${serialSession.requiredCount - serialSession.scannedSerials.length !== 1 ? "s" : ""}`}
+        />
+      )}
+      {!serialScannerOpen && serialSession && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
+          <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl p-6 pb-safe-bottom shadow-xl">
+            <h2 className="text-xl font-bold mb-1">Enter Scanned Serial</h2>
+            <p className="text-gray-500 text-sm mb-1">{serialSession.item.name}</p>
+            <p className="text-xs text-gray-400 mb-4">
+              {serialSession.scannedSerials.length}/{serialSession.requiredCount} captured
+            </p>
+            <label className="label">Serial number</label>
+            <input
+              type="text"
+              value={serialInput}
+              onChange={(e) => setSerialInput(e.target.value)}
+              className="input mb-4"
+              placeholder="Scan or type serial barcode..."
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => setSerialScannerOpen(true)}
+                className="btn-secondary flex-1"
+              >
+                Use Camera
+              </button>
+              <button
+                onClick={() => {
+                  const serial = serialInput.trim();
+                  if (!serial) return;
+                  handleSerializedBarcode(serial);
+                  setSerialInput("");
+                }}
+                className="btn-primary flex-1"
+              >
+                Add Scanned Serial
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Serial number modal */}
       {modal?.type === "serial" && (
@@ -267,18 +431,71 @@ export default function PullKitPage() {
           <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl p-6 pb-safe-bottom shadow-xl">
             <h2 className="text-xl font-bold mb-1">Serialized Item</h2>
             <p className="text-gray-500 text-sm mb-4">{modal.item.name}</p>
-            <label className="label">Confirm serial number</label>
+            <label className="label">How many serialized units are you pulling?</label>
             <input
-              type="text"
-              value={serialInput}
-              onChange={(e) => setSerialInput(e.target.value)}
-              className="input mb-4"
+              type="number"
+              min={1}
+              max={modal.item.stockTracked === false ? undefined : modal.item.count}
+              value={qtyInput}
+              onChange={(e) => setQtyInput(e.target.value)}
+              className="input mb-2 text-2xl text-center font-bold"
               autoFocus
             />
+            <p className="text-xs text-gray-400 mb-4">
+              {modal.item.stockTracked === false
+                ? "Non-stock tracked item"
+                : `${modal.item.count} in stock`}
+            </p>
             <div className="flex gap-2">
               <button onClick={() => setModal(null)} className="btn-secondary flex-1">Cancel</button>
-              <button onClick={confirmSerial} className="btn-primary flex-1">Add to Pull List</button>
+              <button onClick={confirmSerial} className="btn-primary flex-1">Start Serial Scanning</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Serial scanning progress */}
+      {serialSession && (
+        <div className="fixed inset-x-4 bottom-24 z-40 bg-white border border-gray-200 rounded-2xl p-4 shadow-lg">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-semibold text-gray-800 truncate">{serialSession.item.name}</p>
+            <span className="text-xs font-medium text-brand-600">
+              {serialSession.scannedSerials.length}/{serialSession.requiredCount}
+            </span>
+          </div>
+          <p className="text-xs text-gray-500 mb-3">
+            Serialized pull requires one scanned barcode per unit.
+          </p>
+          {serialSession.scannedSerials.length > 0 && (
+            <div className="max-h-24 overflow-y-auto mb-3 space-y-1">
+              {serialSession.scannedSerials.map((sn) => (
+                <p key={sn} className="text-xs font-mono text-gray-500 bg-gray-50 rounded px-2 py-1 truncate">
+                  {sn}
+                </p>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                setSerialScannerOpen(true);
+                setSerialInput("");
+              }}
+              className="btn-secondary flex-1"
+            >
+              Continue Scanning
+            </button>
+            <button
+              onClick={() => {
+                setSerialSession(null);
+                setSerialScannerOpen(false);
+                setSerialInput("");
+                showToast("Serialized scan session cleared", "error");
+              }}
+              className="btn-secondary flex-1"
+            >
+              Cancel Session
+            </button>
           </div>
         </div>
       )}

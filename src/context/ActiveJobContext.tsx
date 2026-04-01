@@ -72,6 +72,16 @@ export function ActiveJobProvider({ children }: { children: ReactNode }) {
 
   function addEntry(entry: PullEntry) {
     setState((s) => {
+      const serial = entry.serialNumber?.trim();
+      if (serial) {
+        const exists = s.pullList.some(
+          (e) =>
+            e.item.id === entry.item.id &&
+            e.serialNumber?.trim().toLowerCase() === serial.toLowerCase()
+        );
+        if (exists) return s;
+      }
+
       // If same itemId already exists, increment quantity
       const existing = s.pullList.find((e) => e.item.id === entry.item.id && !entry.serialNumber);
       if (existing) {

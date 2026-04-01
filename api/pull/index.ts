@@ -44,6 +44,9 @@ interface HaloStockItem {
   name?: string;
   count?: number;
   quantity_in_stock?: number;
+  serialized?: boolean;
+  serialise_only_one?: boolean;
+  serialnumber?: string;
   isrecurringitem?: boolean;
   dont_track_stock?: boolean;
 }
@@ -116,7 +119,6 @@ app.http("pull", {
           const itemData = await haloGet<HaloStockItem>(
             `/Item/${entry.itemId}`
           );
-
           const stockTracked = !(itemData.dont_track_stock || itemData.isrecurringitem);
           if (stockTracked) {
             const available = Number(itemData.count ?? itemData.quantity_in_stock ?? 0);
