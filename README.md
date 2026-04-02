@@ -97,6 +97,22 @@ Open [http://localhost:4280](http://localhost:4280).
 
 ---
 
+## Cursor Subagent: Halo Swagger API Development
+
+This repo includes a project-scoped Cursor subagent at `.cursor/agents/halo-swagger-api-dev.md`.
+
+Use it when implementing or changing API routes under `api/` that integrate with Halo PSA Swagger:
+
+- Explicit invoke: `/halo-swagger-api-dev implement GET /api/<route> using Halo Swagger`
+- Natural language: `Use the halo-swagger-api-dev subagent to add/update this Halo API route`
+
+The subagent is tuned for:
+- Swagger-accurate endpoint integration (`https://usehalo.com/swagger/`)
+- Server-side OAuth safety via existing `api/shared/haloClient.ts`
+- Stable frontend-facing contracts and aligned updates to `src/types/halo.ts`
+
+---
+
 ## Project Structure
 
 ```
