@@ -162,11 +162,20 @@ export interface RoleClaimDiagnostics {
   /** If no app role matched but at least one candidate was seen. */
   hadUnrecognizedRoleCandidates: boolean;
   /** Where the resolved role came from, if any. */
-  resolutionSource: "userRoles" | "claims" | "idToken" | "accessToken" | "authMe" | null;
+  resolutionSource:
+    | "userRoles"
+    | "claims"
+    | "idToken"
+    | "accessToken"
+    | "authToken"
+    | "authMe"
+    | null;
   /** How many role-like candidates came from AAD ID token fallback parsing. */
   idTokenRoleCandidateCount: number;
   /** How many role-like candidates came from AAD access token fallback parsing. */
   accessTokenRoleCandidateCount: number;
+  /** How many role-like candidates came from x-ms-auth-token/authentication headers. */
+  authTokenRoleCandidateCount: number;
   /** How many role-like candidates came from /.auth/me fallback parsing. */
   authMeRoleCandidateCount: number;
   /** Whether /.auth/me fallback call was attempted. */
@@ -195,6 +204,7 @@ export function resolveAppRoleFromPrincipal(p: ClientPrincipal | null): {
     resolutionSource: null,
     idTokenRoleCandidateCount: 0,
     accessTokenRoleCandidateCount: 0,
+    authTokenRoleCandidateCount: 0,
     authMeRoleCandidateCount: 0,
     authMeAttempted: false,
     authMeFetchStatus: "not_attempted",
@@ -258,6 +268,7 @@ export function resolveAppRoleFromPrincipal(p: ClientPrincipal | null): {
       resolutionSource,
       idTokenRoleCandidateCount: 0,
       accessTokenRoleCandidateCount: 0,
+      authTokenRoleCandidateCount: 0,
       authMeRoleCandidateCount: 0,
       authMeAttempted: false,
       authMeFetchStatus: "not_attempted",
@@ -278,10 +289,16 @@ function decodeJwtPartBase64Url(part: string): string | null {
 
 function decodeTokenPayload(
   req: HttpRequest,
-  headerName: "x-ms-token-aad-id-token" | "x-ms-token-aad-access-token"
+  headerName:
+    | "x-ms-token-aad-id-token"
+    | "x-ms-token-aad-access-token"
+    | "x-ms-auth-token"
+    | "authentication"
 ): Record<string, unknown> | null {
-  const token = req.headers.get(headerName);
-  if (!token) return null;
+  const raw = req.headers.get(headerName);
+  if (!raw) return null;
+
+  const token = raw.startsWith("Bearer ") ? raw.slice("Bearer ".length).trim() : raw.trim();
 
   const parts = token.split(".");
   if (parts.length < 2) return null;
@@ -312,7 +329,11 @@ function resolveRoleFromCandidates(candidates: string[]): AppRole | null {
 
 function extractTokenRoleCandidates(
   req: HttpRequest,
-  headerName: "x-ms-token-aad-id-token" | "x-ms-token-aad-access-token"
+  headerName:
+    | "x-ms-token-aad-id-token"
+    | "x-ms-token-aad-access-token"
+    | "x-ms-auth-token"
+    | "authentication"
 ): string[] {
   const payload = decodeTokenPayload(req, headerName);
   if (!payload) return [];
@@ -373,6 +394,28 @@ export function resolveAppRole(req: HttpRequest): {
         resolutionSource: roleFromAccessToken ? "accessToken" : null,
         idTokenRoleCandidateCount: idTokenCandidates.length,
         accessTokenRoleCandidateCount: accessTokenCandidates.length,
+        authTokenRoleCandidateCount: 0,
+      },
+    };
+  }
+
+  const authTokenCandidates = [
+    ...extractTokenRoleCandidates(req, "x-ms-auth-token"),
+    ...extractTokenRoleCandidates(req, "authentication"),
+  ];
+  const roleFromAuthToken = resolveRoleFromCandidates(authTokenCandidates);
+  if (roleFromAuthToken || authTokenCandidates.length > 0) {
+    const totalCandidates =
+      principalResult.diagnostics.roleCandidateCount + authTokenCandidates.length;
+    return {
+      role: roleFromAuthToken,
+      diagnostics: {
+        ...principalResult.diagnostics,
+        roleCandidateCount: totalCandidates,
+        hadUnrecognizedRoleCandidates:
+          roleFromAuthToken === null && totalCandidates > 0,
+        resolutionSource: roleFromAuthToken ? "authToken" : null,
+        authTokenRoleCandidateCount: authTokenCandidates.length,
       },
     };
   }
@@ -382,6 +425,7 @@ export function resolveAppRole(req: HttpRequest): {
     diagnostics: {
       ...principalResult.diagnostics,
       accessTokenRoleCandidateCount: 0,
+      authTokenRoleCandidateCount: 0,
     },
   };
 }

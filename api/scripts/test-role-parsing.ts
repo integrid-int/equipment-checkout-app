@@ -245,6 +245,36 @@ assert(
   );
 passed++;
 
+// Fallback: principal/id/access miss roles, but x-ms-auth-token has them.
+const reqWithAuthTokenFallback = {
+  headers: {
+    get: (name: string) => {
+      if (name === "x-ms-client-principal") {
+        return Buffer.from(JSON.stringify(principalWithoutRoles)).toString("base64");
+      }
+      if (name === "x-ms-auth-token") {
+        return mkUnsignedJwt({
+          roles: ["admin"],
+          aud: "test-audience",
+        });
+      }
+      return null;
+    },
+  },
+} as unknown as import("@azure/functions").HttpRequest;
+
+const authTokenResolved = resolveAppRole(reqWithAuthTokenFallback);
+assert(authTokenResolved.role === "admin", "auth token fallback should resolve admin role");
+assert(
+  authTokenResolved.diagnostics.resolutionSource === "authToken",
+  "resolution source should be authToken"
+);
+assert(
+  authTokenResolved.diagnostics.authTokenRoleCandidateCount > 0,
+  "auth token fallback should contribute candidates"
+);
+passed++;
+
 // Fallback: principal + id token miss roles, but /.auth/me has them.
 const reqWithAuthMeFallback = {
   headers: {
