@@ -11,6 +11,11 @@ export default defineConfig({
       manifest: false, // We use our own manifest.json in public/
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
+        // Never let the service worker intercept SWA auth endpoints.
+        // Without this, Entra's post-login callback (/.auth/login/aad/callback)
+        // is served the cached index.html by the SW before SWA can process the
+        // OAuth code — the session is never established and the page loops.
+        navigateFallbackDenylist: [/^\/.auth\//],
         runtimeCaching: [
           {
             urlPattern: /^\/api\//,
