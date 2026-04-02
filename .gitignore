@@ -6,3 +6,4 @@ api/dist/
 *.local
 .azure/
 setup-output.txt
+api/local.settings.json
