@@ -4,6 +4,7 @@
  */
 
 import {
+  decodeClientPrincipal,
   resolveAppRoleFromPrincipal,
   type ClientPrincipal,
 } from "../shared/auth";
@@ -64,6 +65,14 @@ const cases: Array<{ name: string; p: ClientPrincipal; expectRole: "admin" | "te
     expectRole: "technician",
   },
   {
+    name: "alternate claim key names (type/value)",
+    p: {
+      userDetails: "u@x.com",
+      claims: [{ typ: "roles", val: "admin" }],
+    },
+    expectRole: "admin",
+  },
+  {
     name: "userRoles with dotted suffix",
     p: {
       userDetails: "u@x.com",
@@ -95,6 +104,21 @@ for (const c of cases) {
   }
   passed++;
 }
+
+// Validate coercion from raw claim shape (type/value)
+const rawTypeValue = {
+  userDetails: "u@x.com",
+  claims: [{ type: "roles", value: "admin" }],
+};
+const b64 = Buffer.from(JSON.stringify(rawTypeValue)).toString("base64");
+const req = {
+  headers: { get: (name: string) => (name === "x-ms-client-principal" ? b64 : null) },
+} as unknown as import("@azure/functions").HttpRequest;
+const decoded = decodeClientPrincipal(req);
+assert(decoded?.claims?.[0]?.typ === "roles", "decode should normalize claim type from `type`");
+assert(decoded?.claims?.[0]?.val === "admin", "decode should normalize claim value from `value`");
+assert(resolveAppRoleFromPrincipal(decoded).role === "admin", "decoded raw type/value claim should resolve admin");
+passed++;
 
 // Unrecognized candidates flag
 const unrec: ClientPrincipal = {

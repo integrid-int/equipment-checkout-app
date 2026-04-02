@@ -20,6 +20,19 @@ export interface ClientPrincipal {
   claims?: Array<{ typ: string; val: unknown }>;
 }
 
+interface RawClientPrincipal {
+  userDetails?: unknown;
+  userRoles?: unknown;
+  claims?: unknown;
+}
+
+interface RawPrincipalClaim {
+  typ?: unknown;
+  val?: unknown;
+  type?: unknown;
+  value?: unknown;
+}
+
 const VALID_ROLES: AppRole[] = ["admin", "technician", "receiver"];
 const ROLE_ALIASES: Record<string, AppRole> = {
   admin: "admin",
@@ -34,6 +47,28 @@ const ROLE_ALIASES: Record<string, AppRole> = {
 
 function normalizeClaimType(typ: string): string {
   return typ.trim().toLowerCase();
+}
+
+function coerceClaims(rawClaims: unknown): Array<{ typ: string; val: unknown }> {
+  if (!Array.isArray(rawClaims)) return [];
+
+  const claims: Array<{ typ: string; val: unknown }> = [];
+  for (const raw of rawClaims) {
+    if (!raw || typeof raw !== "object") continue;
+    const claim = raw as RawPrincipalClaim;
+    const typSource = typeof claim.typ === "string" ? claim.typ : claim.type;
+    if (typeof typSource !== "string" || !typSource.trim()) continue;
+
+    const valSource = claim.val !== undefined ? claim.val : claim.value;
+    claims.push({ typ: typSource, val: valSource });
+  }
+
+  return claims;
+}
+
+function coerceUserRoles(rawUserRoles: unknown): string[] {
+  if (!Array.isArray(rawUserRoles)) return [];
+  return rawUserRoles.filter((r): r is string => typeof r === "string");
 }
 
 /** Values may be string, array (AAD sometimes emits multiple role claims), or rare JSON scalars. */
@@ -68,7 +103,15 @@ export function decodeClientPrincipal(req: HttpRequest): ClientPrincipal | null 
   const header = req.headers.get("x-ms-client-principal");
   if (!header) return null;
   try {
-    return JSON.parse(Buffer.from(header, "base64").toString("utf8")) as ClientPrincipal;
+    const parsed = JSON.parse(
+      Buffer.from(header, "base64").toString("utf8")
+    ) as RawClientPrincipal;
+
+    return {
+      userDetails: typeof parsed.userDetails === "string" ? parsed.userDetails : "",
+      userRoles: coerceUserRoles(parsed.userRoles),
+      claims: coerceClaims(parsed.claims),
+    };
   } catch {
     return null;
   }
