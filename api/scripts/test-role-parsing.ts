@@ -186,6 +186,44 @@ assert(
   fallbackResolved.diagnostics.idTokenRoleCandidateCount > 0,
   "id token fallback should contribute candidates"
 );
+assert(
+  fallbackResolved.diagnostics.accessTokenRoleCandidateCount === 0,
+  "id token fallback should not use access token candidates"
+);
+passed++;
+
+// Fallback: principal + id token miss roles, but access token has them.
+const reqWithAccessTokenFallback = {
+  headers: {
+    get: (name: string) => {
+      if (name === "x-ms-client-principal") {
+        return Buffer.from(JSON.stringify(principalWithoutRoles)).toString("base64");
+      }
+      if (name === "x-ms-token-aad-access-token") {
+        return mkUnsignedJwt({
+          roles: ["receiver"],
+          aud: "test-audience",
+        });
+      }
+      return null;
+    },
+  },
+} as unknown as import("@azure/functions").HttpRequest;
+
+const accessResolved = resolveAppRole(reqWithAccessTokenFallback);
+assert(accessResolved.role === "receiver", "access token fallback should resolve receiver role");
+assert(
+  accessResolved.diagnostics.resolutionSource === "accessToken",
+  "resolution source should be accessToken"
+);
+assert(
+  accessResolved.diagnostics.accessTokenRoleCandidateCount > 0,
+  "access token fallback should contribute candidates"
+);
+  assert(
+    accessResolved.diagnostics.authMeFetchStatus === "not_attempted",
+    "token fallback should not attempt authMe"
+  );
 passed++;
 
 // Fallback: principal + id token miss roles, but /.auth/me has them.
@@ -228,6 +266,8 @@ async function runAsyncChecks() {
       authMeResolved.diagnostics.authMeRoleCandidateCount > 0,
       "authMe fallback should contribute candidates"
     );
+    assert(authMeResolved.diagnostics.authMeAttempted, "authMe fallback should mark attempted");
+    assert(authMeResolved.diagnostics.authMeFetchStatus === "ok", "authMe fallback status should be ok");
     passed++;
   } finally {
     globalThis.fetch = originalFetch;

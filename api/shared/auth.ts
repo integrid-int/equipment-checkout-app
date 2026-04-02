@@ -137,11 +137,17 @@ export interface RoleClaimDiagnostics {
   /** If no app role matched but at least one candidate was seen. */
   hadUnrecognizedRoleCandidates: boolean;
   /** Where the resolved role came from, if any. */
-  resolutionSource: "userRoles" | "claims" | "idToken" | "authMe" | null;
+  resolutionSource: "userRoles" | "claims" | "idToken" | "accessToken" | "authMe" | null;
   /** How many role-like candidates came from AAD ID token fallback parsing. */
   idTokenRoleCandidateCount: number;
+  /** How many role-like candidates came from AAD access token fallback parsing. */
+  accessTokenRoleCandidateCount: number;
   /** How many role-like candidates came from /.auth/me fallback parsing. */
   authMeRoleCandidateCount: number;
+  /** Whether /.auth/me fallback call was attempted. */
+  authMeAttempted: boolean;
+  /** Outcome of /.auth/me fallback call. */
+  authMeFetchStatus: "not_attempted" | "ok" | "non_ok" | "error" | "no_url";
 }
 
 function uniqueSorted(values: string[], cap: number): string[] {
@@ -163,7 +169,10 @@ export function resolveAppRoleFromPrincipal(p: ClientPrincipal | null): {
     hadUnrecognizedRoleCandidates: false,
     resolutionSource: null,
     idTokenRoleCandidateCount: 0,
+    accessTokenRoleCandidateCount: 0,
     authMeRoleCandidateCount: 0,
+    authMeAttempted: false,
+    authMeFetchStatus: "not_attempted",
   };
 
   if (!p) {
@@ -223,7 +232,10 @@ export function resolveAppRoleFromPrincipal(p: ClientPrincipal | null): {
       hadUnrecognizedRoleCandidates,
       resolutionSource,
       idTokenRoleCandidateCount: 0,
+      accessTokenRoleCandidateCount: 0,
       authMeRoleCandidateCount: 0,
+      authMeAttempted: false,
+      authMeFetchStatus: "not_attempted",
     },
   };
 }
@@ -239,8 +251,11 @@ function decodeJwtPartBase64Url(part: string): string | null {
   }
 }
 
-function decodeIdTokenPayload(req: HttpRequest): Record<string, unknown> | null {
-  const token = req.headers.get("x-ms-token-aad-id-token");
+function decodeTokenPayload(
+  req: HttpRequest,
+  headerName: "x-ms-token-aad-id-token" | "x-ms-token-aad-access-token"
+): Record<string, unknown> | null {
+  const token = req.headers.get(headerName);
   if (!token) return null;
 
   const parts = token.split(".");
@@ -270,8 +285,11 @@ function resolveRoleFromCandidates(candidates: string[]): AppRole | null {
   return null;
 }
 
-function extractIdTokenRoleCandidates(req: HttpRequest): string[] {
-  const payload = decodeIdTokenPayload(req);
+function extractTokenRoleCandidates(
+  req: HttpRequest,
+  headerName: "x-ms-token-aad-id-token" | "x-ms-token-aad-access-token"
+): string[] {
+  const payload = decodeTokenPayload(req, headerName);
   if (!payload) return [];
 
   const out: string[] = [];
@@ -283,7 +301,7 @@ function extractIdTokenRoleCandidates(req: HttpRequest): string[] {
 }
 
 /**
- * Resolve role from principal claims, with fallback to SWA forwarded AAD ID token.
+ * Resolve role from principal claims, with fallback to SWA forwarded AAD tokens.
  */
 export function resolveAppRole(req: HttpRequest): {
   role: AppRole | null;
@@ -292,23 +310,53 @@ export function resolveAppRole(req: HttpRequest): {
   const principalResult = resolveAppRoleFromPrincipal(decodeClientPrincipal(req));
   if (principalResult.role) return principalResult;
 
-  const idTokenCandidates = extractIdTokenRoleCandidates(req);
-  if (idTokenCandidates.length === 0) return principalResult;
-
+  const idTokenCandidates = extractTokenRoleCandidates(req, "x-ms-token-aad-id-token");
   const roleFromIdToken = resolveRoleFromCandidates(idTokenCandidates);
+  if (roleFromIdToken) {
+    return {
+      role: roleFromIdToken,
+      diagnostics: {
+        ...principalResult.diagnostics,
+        roleCandidateCount:
+          principalResult.diagnostics.roleCandidateCount + idTokenCandidates.length,
+        hadUnrecognizedRoleCandidates:
+          principalResult.diagnostics.hadUnrecognizedRoleCandidates ||
+          (idTokenCandidates.length > 0 && roleFromIdToken === null),
+        resolutionSource: "idToken",
+        idTokenRoleCandidateCount: idTokenCandidates.length,
+      },
+    };
+  }
+
+  const accessTokenCandidates = extractTokenRoleCandidates(
+    req,
+    "x-ms-token-aad-access-token"
+  );
+  const roleFromAccessToken = resolveRoleFromCandidates(accessTokenCandidates);
+  if (roleFromAccessToken || accessTokenCandidates.length > 0 || idTokenCandidates.length > 0) {
+    const totalCandidates =
+      principalResult.diagnostics.roleCandidateCount +
+      idTokenCandidates.length +
+      accessTokenCandidates.length;
+    return {
+      role: roleFromAccessToken,
+      diagnostics: {
+        ...principalResult.diagnostics,
+        roleCandidateCount: totalCandidates,
+        hadUnrecognizedRoleCandidates:
+          roleFromAccessToken === null && totalCandidates > 0,
+        resolutionSource: roleFromAccessToken ? "accessToken" : null,
+        idTokenRoleCandidateCount: idTokenCandidates.length,
+        accessTokenRoleCandidateCount: accessTokenCandidates.length,
+      },
+    };
+  }
+
   return {
-    role: roleFromIdToken,
+    role: null,
     diagnostics: {
       ...principalResult.diagnostics,
-      roleCandidateCount:
-        principalResult.diagnostics.roleCandidateCount + idTokenCandidates.length,
-      hadUnrecognizedRoleCandidates:
-        roleFromIdToken === null &&
-        (principalResult.diagnostics.hadUnrecognizedRoleCandidates ||
-          idTokenCandidates.length > 0),
-      resolutionSource: roleFromIdToken ? "idToken" : null,
-      idTokenRoleCandidateCount: idTokenCandidates.length,
-      authMeRoleCandidateCount: 0,
+      accessTokenRoleCandidateCount: 0,
     },
   };
 }
@@ -320,12 +368,20 @@ function firstForwardedValue(v: string | null): string | null {
 }
 
 function buildAuthMeUrl(req: HttpRequest): string | null {
-  const host =
+  const hostFromHeaders =
     firstForwardedValue(req.headers.get("x-forwarded-host")) ??
     firstForwardedValue(req.headers.get("host"));
-  if (!host) return null;
-  const proto = firstForwardedValue(req.headers.get("x-forwarded-proto")) ?? "https";
-  return `${proto}://${host}/.auth/me`;
+  if (hostFromHeaders) {
+    const proto = firstForwardedValue(req.headers.get("x-forwarded-proto")) ?? "https";
+    return `${proto}://${hostFromHeaders}/.auth/me`;
+  }
+
+  try {
+    const url = new URL(req.url);
+    return `${url.protocol}//${url.host}/.auth/me`;
+  } catch {
+    return null;
+  }
 }
 
 interface SwaMeResponse {
@@ -336,9 +392,17 @@ interface SwaMeResponse {
   } | null;
 }
 
-async function fetchAuthMePrincipal(req: HttpRequest): Promise<ClientPrincipal | null> {
+interface AuthMeFetchResult {
+  principal: ClientPrincipal | null;
+  attempted: boolean;
+  status: "not_attempted" | "ok" | "non_ok" | "error" | "no_url";
+}
+
+async function fetchAuthMePrincipal(req: HttpRequest): Promise<AuthMeFetchResult> {
   const url = buildAuthMeUrl(req);
-  if (!url) return null;
+  if (!url) {
+    return { principal: null, attempted: false, status: "no_url" };
+  }
 
   const cookie = req.headers.get("cookie");
   const headers: Record<string, string> = {};
@@ -346,17 +410,23 @@ async function fetchAuthMePrincipal(req: HttpRequest): Promise<ClientPrincipal |
 
   try {
     const resp = await fetch(url, { headers });
-    if (!resp.ok) return null;
+    if (!resp.ok) return { principal: null, attempted: true, status: "non_ok" };
     const data = (await resp.json()) as SwaMeResponse;
     const cp = data?.clientPrincipal;
-    if (!cp || typeof cp !== "object") return null;
+    if (!cp || typeof cp !== "object") {
+      return { principal: null, attempted: true, status: "ok" };
+    }
     return {
-      userDetails: typeof cp.userDetails === "string" ? cp.userDetails : "",
-      userRoles: coerceUserRoles(cp.userRoles),
-      claims: coerceClaims(cp.claims),
+      attempted: true,
+      status: "ok",
+      principal: {
+        userDetails: typeof cp.userDetails === "string" ? cp.userDetails : "",
+        userRoles: coerceUserRoles(cp.userRoles),
+        claims: coerceClaims(cp.claims),
+      },
     };
   } catch {
-    return null;
+    return { principal: null, attempted: true, status: "error" };
   }
 }
 
@@ -364,32 +434,34 @@ async function fetchAuthMePrincipal(req: HttpRequest): Promise<ClientPrincipal |
  * Resolve role with all server-side fallbacks:
  * 1) x-ms-client-principal
  * 2) x-ms-token-aad-id-token
- * 3) /.auth/me using caller cookies
+ * 3) x-ms-token-aad-access-token
+ * 4) /.auth/me using caller cookies
  */
 export async function resolveAppRoleWithFallback(req: HttpRequest): Promise<{
   role: AppRole | null;
   diagnostics: RoleClaimDiagnostics;
 }> {
-  const fromPrincipalOrIdToken = resolveAppRole(req);
-  if (fromPrincipalOrIdToken.role) return fromPrincipalOrIdToken;
+  const fromPrincipalOrTokens = resolveAppRole(req);
+  if (fromPrincipalOrTokens.role) return fromPrincipalOrTokens;
 
-  const authMePrincipal = await fetchAuthMePrincipal(req);
-  const authMeResolved = resolveAppRoleFromPrincipal(authMePrincipal);
+  const authMeFetch = await fetchAuthMePrincipal(req);
+  const authMeResolved = resolveAppRoleFromPrincipal(authMeFetch.principal);
   const authMeCandidates = authMeResolved.diagnostics.roleCandidateCount;
   const role = authMeResolved.role;
+  const totalCandidates =
+    fromPrincipalOrTokens.diagnostics.roleCandidateCount + authMeCandidates;
 
   return {
     role,
     diagnostics: {
-      ...fromPrincipalOrIdToken.diagnostics,
-      roleCandidateCount:
-        fromPrincipalOrIdToken.diagnostics.roleCandidateCount + authMeCandidates,
+      ...fromPrincipalOrTokens.diagnostics,
+      roleCandidateCount: totalCandidates,
       hadUnrecognizedRoleCandidates:
-        role === null &&
-        (fromPrincipalOrIdToken.diagnostics.hadUnrecognizedRoleCandidates ||
-          authMeResolved.diagnostics.hadUnrecognizedRoleCandidates),
-      resolutionSource: role ? "authMe" : fromPrincipalOrIdToken.diagnostics.resolutionSource,
+        role === null && (totalCandidates > 0),
+      resolutionSource: role ? "authMe" : fromPrincipalOrTokens.diagnostics.resolutionSource,
       authMeRoleCandidateCount: authMeCandidates,
+      authMeAttempted: authMeFetch.attempted,
+      authMeFetchStatus: authMeFetch.status,
     },
   };
 }

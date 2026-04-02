@@ -53,11 +53,23 @@ app.http("me", {
         resolutionSource: diagnostics.resolutionSource,
         roleLikeClaimTypeCount: diagnostics.roleLikeClaimTypes.length,
         idTokenRoleCandidateCount: diagnostics.idTokenRoleCandidateCount,
+        accessTokenRoleCandidateCount: diagnostics.accessTokenRoleCandidateCount,
         authMeRoleCandidateCount: diagnostics.authMeRoleCandidateCount,
+        authMeAttempted: diagnostics.authMeAttempted,
+        authMeFetchStatus: diagnostics.authMeFetchStatus,
         ...(wantVerbose
           ? {
               claimTypes: diagnostics.claimTypes,
               roleLikeClaimTypes: diagnostics.roleLikeClaimTypes,
+              headerPresence: {
+                hasClientPrincipalHeader: !!req.headers.get("x-ms-client-principal"),
+                hasIdTokenHeader: !!req.headers.get("x-ms-token-aad-id-token"),
+                hasAccessTokenHeader: !!req.headers.get("x-ms-token-aad-access-token"),
+                hasCookieHeader: !!req.headers.get("cookie"),
+                hasForwardedHostHeader: !!req.headers.get("x-forwarded-host"),
+                hasHostHeader: !!req.headers.get("host"),
+                hasForwardedProtoHeader: !!req.headers.get("x-forwarded-proto"),
+              },
             }
           : {}),
       };
