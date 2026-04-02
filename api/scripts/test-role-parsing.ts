@@ -154,6 +154,31 @@ assert(
 );
 passed++;
 
+// Validate deeply nested raw principal claim-like shape still resolves via raw parser.
+const rawNestedClaims = {
+  userDetails: "u@x.com",
+  extra: {
+    weird: {
+      nestedClaims: [{ type: "roles", value: ["admin"] }],
+    },
+  },
+};
+const reqRawNestedClaims = {
+  headers: {
+    get: (name: string) =>
+      name === "x-ms-client-principal"
+        ? Buffer.from(JSON.stringify(rawNestedClaims)).toString("base64")
+        : null,
+  },
+} as unknown as import("@azure/functions").HttpRequest;
+const rawNestedResolved = resolveAppRole(reqRawNestedClaims);
+assert(rawNestedResolved.role === "admin", "raw principal nested claims should resolve admin");
+assert(
+  rawNestedResolved.diagnostics.rawPrincipalRoleCandidateCount > 0,
+  "raw principal fallback should contribute candidates"
+);
+passed++;
+
 // Unrecognized candidates flag
 const unrec: ClientPrincipal = {
   userDetails: "u@x.com",

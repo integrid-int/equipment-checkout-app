@@ -55,24 +55,25 @@ app.http("me", {
         idTokenRoleCandidateCount: diagnostics.idTokenRoleCandidateCount,
         accessTokenRoleCandidateCount: diagnostics.accessTokenRoleCandidateCount,
         authTokenRoleCandidateCount: diagnostics.authTokenRoleCandidateCount,
+        rawPrincipalRoleCandidateCount: diagnostics.rawPrincipalRoleCandidateCount,
         authMeRoleCandidateCount: diagnostics.authMeRoleCandidateCount,
         authMeAttempted: diagnostics.authMeAttempted,
         authMeFetchStatus: diagnostics.authMeFetchStatus,
+        headerPresence: {
+          hasClientPrincipalHeader: !!req.headers.get("x-ms-client-principal"),
+          hasIdTokenHeader: !!req.headers.get("x-ms-token-aad-id-token"),
+          hasAccessTokenHeader: !!req.headers.get("x-ms-token-aad-access-token"),
+          hasAuthTokenHeader: !!req.headers.get("x-ms-auth-token"),
+          hasAuthenticationHeader: !!req.headers.get("authentication"),
+          hasCookieHeader: !!req.headers.get("cookie"),
+          hasForwardedHostHeader: !!req.headers.get("x-forwarded-host"),
+          hasHostHeader: !!req.headers.get("host"),
+          hasForwardedProtoHeader: !!req.headers.get("x-forwarded-proto"),
+        },
         ...(wantVerbose
           ? {
               claimTypes: diagnostics.claimTypes,
               roleLikeClaimTypes: diagnostics.roleLikeClaimTypes,
-              headerPresence: {
-                hasClientPrincipalHeader: !!req.headers.get("x-ms-client-principal"),
-                hasIdTokenHeader: !!req.headers.get("x-ms-token-aad-id-token"),
-                hasAccessTokenHeader: !!req.headers.get("x-ms-token-aad-access-token"),
-                hasAuthTokenHeader: !!req.headers.get("x-ms-auth-token"),
-                hasAuthenticationHeader: !!req.headers.get("authentication"),
-                hasCookieHeader: !!req.headers.get("cookie"),
-                hasForwardedHostHeader: !!req.headers.get("x-forwarded-host"),
-                hasHostHeader: !!req.headers.get("host"),
-                hasForwardedProtoHeader: !!req.headers.get("x-forwarded-proto"),
-              },
             }
           : {}),
       };

@@ -165,6 +165,7 @@ export interface RoleClaimDiagnostics {
   resolutionSource:
     | "userRoles"
     | "claims"
+    | "rawPrincipal"
     | "idToken"
     | "accessToken"
     | "authToken"
@@ -176,6 +177,8 @@ export interface RoleClaimDiagnostics {
   accessTokenRoleCandidateCount: number;
   /** How many role-like candidates came from x-ms-auth-token/authentication headers. */
   authTokenRoleCandidateCount: number;
+  /** How many role-like candidates came from raw x-ms-client-principal parsing. */
+  rawPrincipalRoleCandidateCount: number;
   /** How many role-like candidates came from /.auth/me fallback parsing. */
   authMeRoleCandidateCount: number;
   /** Whether /.auth/me fallback call was attempted. */
@@ -205,6 +208,7 @@ export function resolveAppRoleFromPrincipal(p: ClientPrincipal | null): {
     idTokenRoleCandidateCount: 0,
     accessTokenRoleCandidateCount: 0,
     authTokenRoleCandidateCount: 0,
+    rawPrincipalRoleCandidateCount: 0,
     authMeRoleCandidateCount: 0,
     authMeAttempted: false,
     authMeFetchStatus: "not_attempted",
@@ -269,6 +273,7 @@ export function resolveAppRoleFromPrincipal(p: ClientPrincipal | null): {
       idTokenRoleCandidateCount: 0,
       accessTokenRoleCandidateCount: 0,
       authTokenRoleCandidateCount: 0,
+      rawPrincipalRoleCandidateCount: 0,
       authMeRoleCandidateCount: 0,
       authMeAttempted: false,
       authMeFetchStatus: "not_attempted",
@@ -285,6 +290,66 @@ function decodeJwtPartBase64Url(part: string): string | null {
   } catch {
     return null;
   }
+}
+
+function decodeClientPrincipalRaw(req: HttpRequest): unknown | null {
+  const header = req.headers.get("x-ms-client-principal");
+  if (!header) return null;
+  try {
+    return JSON.parse(Buffer.from(header, "base64").toString("utf8")) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function extractRawRoleCandidatesFromUnknown(
+  node: unknown,
+  keyHint: string | null = null,
+  depth = 0
+): string[] {
+  if (depth > 8 || node === null || node === undefined) return [];
+
+  if (typeof node === "string" || typeof node === "number" || typeof node === "boolean") {
+    if (!keyHint) return [];
+    const k = keyHint.trim().toLowerCase();
+    if (!k) return [];
+    if (claimTypeIsRoleClaim(k) || k.includes("role")) return [String(node)];
+    return [];
+  }
+
+  if (Array.isArray(node)) {
+    const out: string[] = [];
+    for (const child of node) {
+      out.push(...extractRawRoleCandidatesFromUnknown(child, keyHint, depth + 1));
+    }
+    return out;
+  }
+
+  if (typeof node === "object") {
+    const obj = node as Record<string, unknown>;
+    const out: string[] = [];
+
+    // Handle claim-like objects even when names differ from typ/val.
+    const maybeClaim = obj as RawPrincipalClaim;
+    const typSource = typeof maybeClaim.typ === "string" ? maybeClaim.typ : maybeClaim.type;
+    const valSource = maybeClaim.val !== undefined ? maybeClaim.val : maybeClaim.value;
+    if (typeof typSource === "string" && claimTypeIsRoleClaim(typSource)) {
+      out.push(...extractRoleStringsFromClaimValue(valSource));
+    }
+
+    for (const [k, v] of Object.entries(obj)) {
+      out.push(...extractRawRoleCandidatesFromUnknown(v, k, depth + 1));
+    }
+    return out;
+  }
+
+  return [];
+}
+
+function extractRawPrincipalRoleCandidates(req: HttpRequest): string[] {
+  const raw = decodeClientPrincipalRaw(req);
+  if (!raw) return [];
+  return extractRawRoleCandidatesFromUnknown(raw);
 }
 
 function decodeTokenPayload(
@@ -356,6 +421,30 @@ export function resolveAppRole(req: HttpRequest): {
   const principalResult = resolveAppRoleFromPrincipal(decodeClientPrincipal(req));
   if (principalResult.role) return principalResult;
 
+  const rawPrincipalCandidates = extractRawPrincipalRoleCandidates(req);
+  const roleFromRawPrincipal = resolveRoleFromCandidates(rawPrincipalCandidates);
+  if (roleFromRawPrincipal) {
+    return {
+      role: roleFromRawPrincipal,
+      diagnostics: {
+        ...principalResult.diagnostics,
+        roleCandidateCount:
+          principalResult.diagnostics.roleCandidateCount + rawPrincipalCandidates.length,
+        hadUnrecognizedRoleCandidates:
+          principalResult.diagnostics.hadUnrecognizedRoleCandidates ||
+          (rawPrincipalCandidates.length > 0 && roleFromRawPrincipal === null),
+        resolutionSource: "rawPrincipal",
+        rawPrincipalRoleCandidateCount: rawPrincipalCandidates.length,
+      },
+    };
+  }
+
+  const baseRoleCandidateCount =
+    principalResult.diagnostics.roleCandidateCount + rawPrincipalCandidates.length;
+  const hadUnrecognizedBeforeTokens =
+    principalResult.diagnostics.hadUnrecognizedRoleCandidates ||
+    rawPrincipalCandidates.length > 0;
+
   const idTokenCandidates = extractTokenRoleCandidates(req, "x-ms-token-aad-id-token");
   const roleFromIdToken = resolveRoleFromCandidates(idTokenCandidates);
   if (roleFromIdToken) {
@@ -364,12 +453,13 @@ export function resolveAppRole(req: HttpRequest): {
       diagnostics: {
         ...principalResult.diagnostics,
         roleCandidateCount:
-          principalResult.diagnostics.roleCandidateCount + idTokenCandidates.length,
+          baseRoleCandidateCount + idTokenCandidates.length,
         hadUnrecognizedRoleCandidates:
-          principalResult.diagnostics.hadUnrecognizedRoleCandidates ||
+          hadUnrecognizedBeforeTokens ||
           (idTokenCandidates.length > 0 && roleFromIdToken === null),
         resolutionSource: "idToken",
         idTokenRoleCandidateCount: idTokenCandidates.length,
+        rawPrincipalRoleCandidateCount: rawPrincipalCandidates.length,
       },
     };
   }
@@ -381,7 +471,7 @@ export function resolveAppRole(req: HttpRequest): {
   const roleFromAccessToken = resolveRoleFromCandidates(accessTokenCandidates);
   if (roleFromAccessToken || accessTokenCandidates.length > 0 || idTokenCandidates.length > 0) {
     const totalCandidates =
-      principalResult.diagnostics.roleCandidateCount +
+      baseRoleCandidateCount +
       idTokenCandidates.length +
       accessTokenCandidates.length;
     return {
@@ -395,6 +485,7 @@ export function resolveAppRole(req: HttpRequest): {
         idTokenRoleCandidateCount: idTokenCandidates.length,
         accessTokenRoleCandidateCount: accessTokenCandidates.length,
         authTokenRoleCandidateCount: 0,
+        rawPrincipalRoleCandidateCount: rawPrincipalCandidates.length,
       },
     };
   }
@@ -406,7 +497,7 @@ export function resolveAppRole(req: HttpRequest): {
   const roleFromAuthToken = resolveRoleFromCandidates(authTokenCandidates);
   if (roleFromAuthToken || authTokenCandidates.length > 0) {
     const totalCandidates =
-      principalResult.diagnostics.roleCandidateCount + authTokenCandidates.length;
+      baseRoleCandidateCount + authTokenCandidates.length;
     return {
       role: roleFromAuthToken,
       diagnostics: {
@@ -416,6 +507,7 @@ export function resolveAppRole(req: HttpRequest): {
           roleFromAuthToken === null && totalCandidates > 0,
         resolutionSource: roleFromAuthToken ? "authToken" : null,
         authTokenRoleCandidateCount: authTokenCandidates.length,
+        rawPrincipalRoleCandidateCount: rawPrincipalCandidates.length,
       },
     };
   }
@@ -424,8 +516,11 @@ export function resolveAppRole(req: HttpRequest): {
     role: null,
     diagnostics: {
       ...principalResult.diagnostics,
+      roleCandidateCount: baseRoleCandidateCount,
+      hadUnrecognizedRoleCandidates: hadUnrecognizedBeforeTokens,
       accessTokenRoleCandidateCount: 0,
       authTokenRoleCandidateCount: 0,
+      rawPrincipalRoleCandidateCount: rawPrincipalCandidates.length,
     },
   };
 }
