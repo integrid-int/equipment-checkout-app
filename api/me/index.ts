@@ -5,7 +5,12 @@
  */
 
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
-import { getCallerRole } from "../shared/auth";
+import {
+  decodeClientPrincipal,
+  extractRoleStringsFromClaimValue,
+  getCallerEmailFromPrincipal,
+  resolveAppRoleFromPrincipal,
+} from "../shared/auth";
 
 app.http("me", {
   methods: ["GET"],
@@ -13,37 +18,56 @@ app.http("me", {
   route: "me",
   handler: async (req: HttpRequest, ctx: InvocationContext): Promise<HttpResponseInit> => {
     try {
-      // SWA injects the client principal as a base64 header
       const principalHeader = req.headers.get("x-ms-client-principal");
       if (!principalHeader) {
         return { status: 401, jsonBody: { error: "Not authenticated" } };
       }
 
-      const principal = JSON.parse(
-        Buffer.from(principalHeader, "base64").toString("utf8")
-      ) as {
-        userDetails: string;
-        claims?: Array<{ typ: string; val: string }>;
-      };
+      const principal = decodeClientPrincipal(req);
+      if (!principal) {
+        return { status: 400, jsonBody: { error: "Invalid client principal header" } };
+      }
 
-      const email =
-        principal.claims?.find((c) => c.typ === "preferred_username")?.val ??
-        principal.claims?.find((c) => c.typ === "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress")?.val ??
-        principal.userDetails;
-
-      const displayName =
-        principal.claims?.find((c) => c.typ === "name")?.val ??
+      const email = getCallerEmailFromPrincipal(principal);
+      const nameClaim = principal.claims?.find(
+        (c) => c.typ?.trim().toLowerCase() === "name"
+      );
+      const displayNameStr =
+        (nameClaim ? extractRoleStringsFromClaimValue(nameClaim.val)[0] : undefined) ??
         principal.userDetails;
 
       if (!email) {
         return { status: 400, jsonBody: { error: "Could not determine user email from token" } };
       }
 
-      const role = getCallerRole(req);
+      const { role, diagnostics } = resolveAppRoleFromPrincipal(principal);
+
+      const allowVerbose =
+        process.env.ALLOW_ME_ROLE_DIAGNOSTICS === "true" ||
+        process.env.ALLOW_ME_ROLE_DIAGNOSTICS === "1";
+      const wantVerbose = allowVerbose && req.query.get("verbose") === "1";
+
+      const roleDiagnostics = {
+        roleCandidateCount: diagnostics.roleCandidateCount,
+        hadUnrecognizedRoleCandidates: diagnostics.hadUnrecognizedRoleCandidates,
+        resolutionSource: diagnostics.resolutionSource,
+        roleLikeClaimTypeCount: diagnostics.roleLikeClaimTypes.length,
+        ...(wantVerbose
+          ? {
+              claimTypes: diagnostics.claimTypes,
+              roleLikeClaimTypes: diagnostics.roleLikeClaimTypes,
+            }
+          : {}),
+      };
 
       return {
         status: 200,
-        jsonBody: { email, displayName, role },
+        jsonBody: {
+          email,
+          displayName: displayNameStr,
+          role,
+          roleDiagnostics,
+        },
       };
     } catch (err) {
       ctx.error("me error:", err);

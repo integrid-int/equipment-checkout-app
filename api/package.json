@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc -w",
-    "start": "func start"
+    "start": "func start",
+    "test:role-parsing": "npm run build && node dist/scripts/test-role-parsing.js"
   },
   "dependencies": {
     "@azure/functions": "^4.3.0"
