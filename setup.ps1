@@ -243,14 +243,64 @@ Write-Step 6 "Creating Entra app registration"
 
 $appName = "Deployment Kit App"
 
+# App roles for the application (values must match VALID_ROLES in api/shared/auth.ts)
+$appRoleDefs = @(
+    @{
+        Id                  = [System.Guid]::NewGuid().ToString()
+        DisplayName         = "Admin"
+        Description         = "Admins — full access including admin pages"
+        Value               = "admin"
+        AllowedMemberTypes  = @("User")
+        IsEnabled           = $true
+    },
+    @{
+        Id                  = [System.Guid]::NewGuid().ToString()
+        DisplayName         = "Technician"
+        Description         = "Technicians — pull kits, returns, view stock"
+        Value               = "technician"
+        AllowedMemberTypes  = @("User")
+        IsEnabled           = $true
+    },
+    @{
+        Id                  = [System.Guid]::NewGuid().ToString()
+        DisplayName         = "Receiver"
+        Description         = "Receivers — receive POs, view stock"
+        Value               = "receiver"
+        AllowedMemberTypes  = @("User")
+        IsEnabled           = $true
+    }
+)
+
+# Emit the roles claim in the ID token so SWA includes it in x-ms-client-principal
+$optionalClaims = @{
+    IdToken     = @(@{ Name = "roles"; Essential = $false })
+    AccessToken = @(@{ Name = "roles"; Essential = $false })
+    Saml2Token  = @()
+}
+
 $existingApp = Get-MgApplication -Filter "displayName eq '$appName'" -ErrorAction SilentlyContinue
 if ($existingApp) {
     Write-Warn "App '$appName' already exists — reusing it"
     $app = $existingApp
+
+    # Merge in any missing app roles (do not disable or replace existing ones)
+    $existingRoleValues = $app.AppRoles | Select-Object -ExpandProperty Value
+    $rolesToAdd = $appRoleDefs | Where-Object { $_.Value -notin $existingRoleValues }
+    if ($rolesToAdd.Count -gt 0) {
+        $mergedRoles = @($app.AppRoles) + @($rolesToAdd)
+        Update-MgApplication -ApplicationId $app.Id -AppRoles $mergedRoles -OptionalClaims $optionalClaims
+        Write-Ok "Added missing app roles: $($rolesToAdd.Value -join ', ')"
+    } else {
+        # Still patch optional claims in case they were missing
+        Update-MgApplication -ApplicationId $app.Id -OptionalClaims $optionalClaims
+        Write-Ok "App roles already present; patched optional claims"
+    }
 } else {
     $app = New-MgApplication -DisplayName $appName `
         -SignInAudience "AzureADMyOrg" `
-        -Web @{ ImplicitGrantSettings = @{ EnableIdTokenIssuance = $true } }
+        -Web @{ ImplicitGrantSettings = @{ EnableIdTokenIssuance = $true } } `
+        -AppRoles $appRoleDefs `
+        -OptionalClaims $optionalClaims
     Write-Ok "Created app: $appName ($($app.AppId))"
 }
 

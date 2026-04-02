@@ -78,7 +78,10 @@ export default function App() {
 
   if (!isAuthenticated) {
     const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-    const postLoginRedirect = window.location.pathname === "/login" ? "/" : currentPath;
+    const isSafeRedirect =
+      window.location.pathname !== "/login" &&
+      !window.location.pathname.startsWith("/.auth");
+    const postLoginRedirect = isSafeRedirect ? currentPath : "/";
     window.location.href = `/.auth/login/aad?post_login_redirect_uri=${encodeURIComponent(postLoginRedirect)}`;
     return <LoadingScreen />;
   }

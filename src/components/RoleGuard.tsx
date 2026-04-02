@@ -25,7 +25,7 @@ export default function RoleGuard({ roles, children, silent = false }: Props) {
     // Authenticated but no role assigned
     return (
       <div className="flex flex-col items-center justify-center min-h-[80vh] px-8 text-center gap-4">
-        <span className="text-5xl">—</span>
+        <span className="text-5xl">🔒</span>
         <h2 className="text-xl font-bold text-gray-800">Access Pending</h2>
         <p className="text-gray-500 text-sm">
           You're signed in as <strong>{email}</strong>, but you haven't been assigned a role yet.
@@ -33,6 +33,15 @@ export default function RoleGuard({ roles, children, silent = false }: Props) {
         <p className="text-gray-400 text-sm">
           Ask your Entra app administrator to assign you an app role.
         </p>
+        <p className="text-gray-400 text-xs mt-2">
+          Once a role has been assigned, sign out and sign back in for it to take effect.
+        </p>
+        <a
+          href="/.auth/logout?post_logout_redirect_uri=/login"
+          className="mt-2 px-4 py-2 rounded-xl bg-gray-100 text-gray-600 text-sm font-medium hover:bg-gray-200 transition-colors"
+        >
+          Sign out
+        </a>
       </div>
     );
   }

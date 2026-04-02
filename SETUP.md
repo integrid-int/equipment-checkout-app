@@ -105,7 +105,15 @@ The script installs what it can automatically. If auto-install fails, install ma
 | **technician** | Field techs | Job, Pull Kit, Return, Stock |
 | **receiver** | Warehouse / receiving staff | Receive POs, Stock |
 
-Create these app roles on your Entra app registration, then assign users/groups in the Enterprise Application for this app.
+`setup.ps1` creates these roles automatically. If you created roles manually, verify the **Value** field uses the exact lowercase singular strings above (`admin`, `technician`, `receiver`).
+
+After role assignment, the user must **sign out and sign back in** so the new role appears in their token.
+
+> **Important — optional claims:** The `roles` claim must be emitted in the ID token for SWA to forward it to the app. `setup.ps1` configures this automatically. If you created the app registration by hand:
+> 1. Go to your Entra app registration → **Token configuration**
+> 2. Click **+ Add optional claim** → select token type **ID**
+> 3. Check **roles** → click **Add** (accept the Microsoft Graph permission prompt)
+> 4. Repeat for **Access** token type
 
 4. **iOS kiosk setup** (iPad / iPhone):
    - Open **Safari** (not Chrome) and navigate to the app URL
@@ -133,7 +141,15 @@ The portal collects all parameters and provisions the infrastructure. Afterward 
    | `AZURE_STATIC_WEB_APPS_API_TOKEN` | Run: `az staticwebapp secrets list --name <siteName> --resource-group <rg> --query properties.apiKey -o tsv` |
    | `ENTRA_TENANT_ID` | Your Azure AD Directory (tenant) ID |
 
-4. Push to `main` or trigger the workflow manually in GitHub Actions
+4. **Create app roles** on your Entra app registration (App roles tab) with these exact **Value** strings:
+   `admin`, `technician`, `receiver`
+   Then assign users/groups to them via **Enterprise Applications → Users and groups**.
+
+5. **Enable optional claims** so the `roles` claim appears in the ID token:
+   App registration → **Token configuration** → **+ Add optional claim** → type **ID** → check `roles` → **Add**.
+   Repeat for type **Access**.
+
+6. Push to `main` or trigger the workflow manually in GitHub Actions
 
 ---
 
