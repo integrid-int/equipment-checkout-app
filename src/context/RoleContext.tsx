@@ -28,7 +28,8 @@ export function RoleProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setLoading(true);
-    fetch("/api/me")
+    const ts = Date.now();
+    fetch(`/api/me?ts=${ts}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((data: { email?: string; displayName?: string; role?: AppRole }) => {
         setEmail(data.email ?? "");

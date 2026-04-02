@@ -15,12 +15,12 @@ export default defineConfig({
         // Without this, Entra's post-login callback (/.auth/login/aad/callback)
         // is served the cached index.html by the SW before SWA can process the
         // OAuth code — the session is never established and the page loops.
-        navigateFallbackDenylist: [/^\/.auth\//],
+        navigateFallbackDenylist: [/^\/.auth\//, /^\/api\//],
         runtimeCaching: [
           {
             urlPattern: /^\/api\//,
-            handler: "NetworkFirst",
-            options: { cacheName: "api-cache", networkTimeoutSeconds: 10 },
+            // Avoid caching API auth/role responses; always hit network.
+            handler: "NetworkOnly",
           },
         ],
       },
