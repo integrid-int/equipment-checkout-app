@@ -128,9 +128,11 @@ export interface RoleClaimDiagnostics {
   /** If no app role matched but at least one candidate was seen. */
   hadUnrecognizedRoleCandidates: boolean;
   /** Where the resolved role came from, if any. */
-  resolutionSource: "userRoles" | "claims" | "idToken" | null;
+  resolutionSource: "userRoles" | "claims" | "idToken" | "authMe" | null;
   /** How many role-like candidates came from AAD ID token fallback parsing. */
   idTokenRoleCandidateCount: number;
+  /** How many role-like candidates came from /.auth/me fallback parsing. */
+  authMeRoleCandidateCount: number;
 }
 
 function uniqueSorted(values: string[], cap: number): string[] {
@@ -152,6 +154,7 @@ export function resolveAppRoleFromPrincipal(p: ClientPrincipal | null): {
     hadUnrecognizedRoleCandidates: false,
     resolutionSource: null,
     idTokenRoleCandidateCount: 0,
+    authMeRoleCandidateCount: 0,
   };
 
   if (!p) {
@@ -211,6 +214,7 @@ export function resolveAppRoleFromPrincipal(p: ClientPrincipal | null): {
       hadUnrecognizedRoleCandidates,
       resolutionSource,
       idTokenRoleCandidateCount: 0,
+      authMeRoleCandidateCount: 0,
     },
   };
 }
@@ -295,6 +299,88 @@ export function resolveAppRole(req: HttpRequest): {
           idTokenCandidates.length > 0),
       resolutionSource: roleFromIdToken ? "idToken" : null,
       idTokenRoleCandidateCount: idTokenCandidates.length,
+      authMeRoleCandidateCount: 0,
+    },
+  };
+}
+
+function firstForwardedValue(v: string | null): string | null {
+  if (!v) return null;
+  const first = v.split(",")[0]?.trim();
+  return first || null;
+}
+
+function buildAuthMeUrl(req: HttpRequest): string | null {
+  const host =
+    firstForwardedValue(req.headers.get("x-forwarded-host")) ??
+    firstForwardedValue(req.headers.get("host"));
+  if (!host) return null;
+  const proto = firstForwardedValue(req.headers.get("x-forwarded-proto")) ?? "https";
+  return `${proto}://${host}/.auth/me`;
+}
+
+interface SwaMeResponse {
+  clientPrincipal?: {
+    userDetails?: unknown;
+    userRoles?: unknown;
+    claims?: unknown;
+  } | null;
+}
+
+async function fetchAuthMePrincipal(req: HttpRequest): Promise<ClientPrincipal | null> {
+  const url = buildAuthMeUrl(req);
+  if (!url) return null;
+
+  const cookie = req.headers.get("cookie");
+  const headers: Record<string, string> = {};
+  if (cookie) headers.cookie = cookie;
+
+  try {
+    const resp = await fetch(url, { headers });
+    if (!resp.ok) return null;
+    const data = (await resp.json()) as SwaMeResponse;
+    const cp = data?.clientPrincipal;
+    if (!cp || typeof cp !== "object") return null;
+    return {
+      userDetails: typeof cp.userDetails === "string" ? cp.userDetails : "",
+      userRoles: coerceUserRoles(cp.userRoles),
+      claims: coerceClaims(cp.claims),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve role with all server-side fallbacks:
+ * 1) x-ms-client-principal
+ * 2) x-ms-token-aad-id-token
+ * 3) /.auth/me using caller cookies
+ */
+export async function resolveAppRoleWithFallback(req: HttpRequest): Promise<{
+  role: AppRole | null;
+  diagnostics: RoleClaimDiagnostics;
+}> {
+  const fromPrincipalOrIdToken = resolveAppRole(req);
+  if (fromPrincipalOrIdToken.role) return fromPrincipalOrIdToken;
+
+  const authMePrincipal = await fetchAuthMePrincipal(req);
+  const authMeResolved = resolveAppRoleFromPrincipal(authMePrincipal);
+  const authMeCandidates = authMeResolved.diagnostics.roleCandidateCount;
+  const role = authMeResolved.role;
+
+  return {
+    role,
+    diagnostics: {
+      ...fromPrincipalOrIdToken.diagnostics,
+      roleCandidateCount:
+        fromPrincipalOrIdToken.diagnostics.roleCandidateCount + authMeCandidates,
+      hadUnrecognizedRoleCandidates:
+        role === null &&
+        (fromPrincipalOrIdToken.diagnostics.hadUnrecognizedRoleCandidates ||
+          authMeResolved.diagnostics.hadUnrecognizedRoleCandidates),
+      resolutionSource: role ? "authMe" : fromPrincipalOrIdToken.diagnostics.resolutionSource,
+      authMeRoleCandidateCount: authMeCandidates,
     },
   };
 }
@@ -360,7 +446,7 @@ export async function requireRole(
 ): Promise<CallerInfo | null> {
   const email = getCallerEmail(req);
   if (!email) return null;
-  const role = getCallerRole(req);
+  const role = (await resolveAppRoleWithFallback(req)).role;
   if (!role || !allowedRoles.includes(role)) return null;
   return { email, role };
 }

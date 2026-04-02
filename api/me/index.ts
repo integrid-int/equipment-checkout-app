@@ -9,7 +9,7 @@ import {
   decodeClientPrincipal,
   extractRoleStringsFromClaimValue,
   getCallerEmailFromPrincipal,
-  resolveAppRole,
+  resolveAppRoleWithFallback,
 } from "../shared/auth";
 
 app.http("me", {
@@ -40,7 +40,7 @@ app.http("me", {
         return { status: 400, jsonBody: { error: "Could not determine user email from token" } };
       }
 
-      const { role, diagnostics } = resolveAppRole(req);
+      const { role, diagnostics } = await resolveAppRoleWithFallback(req);
 
       const allowVerbose =
         process.env.ALLOW_ME_ROLE_DIAGNOSTICS === "true" ||
@@ -53,6 +53,7 @@ app.http("me", {
         resolutionSource: diagnostics.resolutionSource,
         roleLikeClaimTypeCount: diagnostics.roleLikeClaimTypes.length,
         idTokenRoleCandidateCount: diagnostics.idTokenRoleCandidateCount,
+        authMeRoleCandidateCount: diagnostics.authMeRoleCandidateCount,
         ...(wantVerbose
           ? {
               claimTypes: diagnostics.claimTypes,

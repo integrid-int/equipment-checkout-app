@@ -5,6 +5,7 @@
 
 import {
   resolveAppRole,
+  resolveAppRoleWithFallback,
   decodeClientPrincipal,
   resolveAppRoleFromPrincipal,
   type ClientPrincipal,
@@ -174,4 +175,55 @@ assert(
 );
 passed++;
 
-console.log(`OK: ${passed} role-parsing checks passed`);
+// Fallback: principal + id token miss roles, but /.auth/me has them.
+const reqWithAuthMeFallback = {
+  headers: {
+    get: (name: string) => {
+      if (name === "x-ms-client-principal") {
+        return Buffer.from(JSON.stringify(principalWithoutRoles)).toString("base64");
+      }
+      if (name === "host") return "example.test";
+      if (name === "x-forwarded-proto") return "https";
+      if (name === "cookie") return "StaticWebAppsAuthCookie=test";
+      return null;
+    },
+  },
+} as unknown as import("@azure/functions").HttpRequest;
+
+const originalFetch = globalThis.fetch;
+globalThis.fetch = (async (input: string | URL | Request) => {
+  const url = String(input);
+  if (!url.endsWith("/.auth/me")) throw new Error(`Unexpected fetch URL: ${url}`);
+  return new Response(
+    JSON.stringify({
+      clientPrincipal: {
+        userDetails: "u@x.com",
+        userRoles: ["authenticated"],
+        claims: [{ typ: "roles", val: "admin" }],
+      },
+    }),
+    { status: 200, headers: { "content-type": "application/json" } }
+  );
+}) as typeof fetch;
+
+async function runAsyncChecks() {
+  try {
+    const authMeResolved = await resolveAppRoleWithFallback(reqWithAuthMeFallback);
+    assert(authMeResolved.role === "admin", "authMe fallback should resolve admin role");
+    assert(authMeResolved.diagnostics.resolutionSource === "authMe", "resolution source should be authMe");
+    assert(
+      authMeResolved.diagnostics.authMeRoleCandidateCount > 0,
+      "authMe fallback should contribute candidates"
+    );
+    passed++;
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  console.log(`OK: ${passed} role-parsing checks passed`);
+}
+
+runAsyncChecks().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
