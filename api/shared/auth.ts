@@ -50,23 +50,48 @@ function normalizeClaimType(typ: string): string {
 }
 
 function coerceClaims(rawClaims: unknown): Array<{ typ: string; val: unknown }> {
-  if (!Array.isArray(rawClaims)) return [];
-
   const claims: Array<{ typ: string; val: unknown }> = [];
-  for (const raw of rawClaims) {
-    if (!raw || typeof raw !== "object") continue;
-    const claim = raw as RawPrincipalClaim;
-    const typSource = typeof claim.typ === "string" ? claim.typ : claim.type;
-    if (typeof typSource !== "string" || !typSource.trim()) continue;
+  if (Array.isArray(rawClaims)) {
+    for (const raw of rawClaims) {
+      if (!raw || typeof raw !== "object") continue;
+      const claim = raw as RawPrincipalClaim;
+      const typSource = typeof claim.typ === "string" ? claim.typ : claim.type;
+      if (typeof typSource !== "string" || !typSource.trim()) continue;
 
-    const valSource = claim.val !== undefined ? claim.val : claim.value;
-    claims.push({ typ: typSource, val: valSource });
+      const valSource = claim.val !== undefined ? claim.val : claim.value;
+      claims.push({ typ: typSource, val: valSource });
+    }
+    return claims;
+  }
+
+  // Some runtimes expose claims as an object map: { claimType: value }.
+  if (rawClaims && typeof rawClaims === "object") {
+    for (const [key, value] of Object.entries(rawClaims as Record<string, unknown>)) {
+      if (!key || !key.trim()) continue;
+      claims.push({ typ: key, val: value });
+    }
+    return claims;
+  }
+
+  // Rare shape: claims serialized as JSON string.
+  if (typeof rawClaims === "string") {
+    try {
+      return coerceClaims(JSON.parse(rawClaims));
+    } catch {
+      return [];
+    }
   }
 
   return claims;
 }
 
 function coerceUserRoles(rawUserRoles: unknown): string[] {
+  if (typeof rawUserRoles === "string") {
+    return rawUserRoles
+      .split(",")
+      .map((r) => r.trim())
+      .filter(Boolean);
+  }
   if (!Array.isArray(rawUserRoles)) return [];
   return rawUserRoles.filter((r): r is string => typeof r === "string");
 }

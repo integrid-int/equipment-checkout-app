@@ -135,6 +135,25 @@ assert(decoded?.claims?.[0]?.val === "admin", "decode should normalize claim val
 assert(resolveAppRoleFromPrincipal(decoded).role === "admin", "decoded raw type/value claim should resolve admin");
 passed++;
 
+// Validate claims object-map shape + comma-separated userRoles string.
+const rawObjectClaims = {
+  userDetails: "u@x.com",
+  userRoles: "authenticated,anonymous",
+  claims: {
+    roles: "technician",
+  },
+};
+const b64ObjectClaims = Buffer.from(JSON.stringify(rawObjectClaims)).toString("base64");
+const reqObjectClaims = {
+  headers: { get: (name: string) => (name === "x-ms-client-principal" ? b64ObjectClaims : null) },
+} as unknown as import("@azure/functions").HttpRequest;
+const decodedObjectClaims = decodeClientPrincipal(reqObjectClaims);
+assert(
+  resolveAppRoleFromPrincipal(decodedObjectClaims).role === "technician",
+  "decoded object-map claims should resolve technician"
+);
+passed++;
+
 // Unrecognized candidates flag
 const unrec: ClientPrincipal = {
   userDetails: "u@x.com",
