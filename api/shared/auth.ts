@@ -128,7 +128,9 @@ export interface RoleClaimDiagnostics {
   /** If no app role matched but at least one candidate was seen. */
   hadUnrecognizedRoleCandidates: boolean;
   /** Where the resolved role came from, if any. */
-  resolutionSource: "userRoles" | "claims" | null;
+  resolutionSource: "userRoles" | "claims" | "idToken" | null;
+  /** How many role-like candidates came from AAD ID token fallback parsing. */
+  idTokenRoleCandidateCount: number;
 }
 
 function uniqueSorted(values: string[], cap: number): string[] {
@@ -149,6 +151,7 @@ export function resolveAppRoleFromPrincipal(p: ClientPrincipal | null): {
     roleCandidateCount: 0,
     hadUnrecognizedRoleCandidates: false,
     resolutionSource: null,
+    idTokenRoleCandidateCount: 0,
   };
 
   if (!p) {
@@ -207,6 +210,91 @@ export function resolveAppRoleFromPrincipal(p: ClientPrincipal | null): {
       roleCandidateCount,
       hadUnrecognizedRoleCandidates,
       resolutionSource,
+      idTokenRoleCandidateCount: 0,
+    },
+  };
+}
+
+function decodeJwtPartBase64Url(part: string): string | null {
+  try {
+    const normalized = part.replace(/-/g, "+").replace(/_/g, "/");
+    const padding = normalized.length % 4;
+    const padded = padding === 0 ? normalized : `${normalized}${"=".repeat(4 - padding)}`;
+    return Buffer.from(padded, "base64").toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
+function decodeIdTokenPayload(req: HttpRequest): Record<string, unknown> | null {
+  const token = req.headers.get("x-ms-token-aad-id-token");
+  if (!token) return null;
+
+  const parts = token.split(".");
+  if (parts.length < 2) return null;
+  const payloadJson = decodeJwtPartBase64Url(parts[1]);
+  if (!payloadJson) return null;
+
+  try {
+    const payload = JSON.parse(payloadJson) as unknown;
+    return payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveRoleFromCandidates(candidates: string[]): AppRole | null {
+  for (const rawRole of candidates) {
+    if (typeof rawRole !== "string") continue;
+    const exact = normalizeRole(rawRole);
+    if (exact) return exact;
+    const suffix = rawRole.split(/[./:\\|]/).pop();
+    const fromSuffix = normalizeRole(suffix);
+    if (fromSuffix) return fromSuffix;
+  }
+  return null;
+}
+
+function extractIdTokenRoleCandidates(req: HttpRequest): string[] {
+  const payload = decodeIdTokenPayload(req);
+  if (!payload) return [];
+
+  const out: string[] = [];
+  for (const [key, value] of Object.entries(payload)) {
+    if (!claimTypeIsRoleClaim(key)) continue;
+    out.push(...extractRoleStringsFromClaimValue(value));
+  }
+  return out;
+}
+
+/**
+ * Resolve role from principal claims, with fallback to SWA forwarded AAD ID token.
+ */
+export function resolveAppRole(req: HttpRequest): {
+  role: AppRole | null;
+  diagnostics: RoleClaimDiagnostics;
+} {
+  const principalResult = resolveAppRoleFromPrincipal(decodeClientPrincipal(req));
+  if (principalResult.role) return principalResult;
+
+  const idTokenCandidates = extractIdTokenRoleCandidates(req);
+  if (idTokenCandidates.length === 0) return principalResult;
+
+  const roleFromIdToken = resolveRoleFromCandidates(idTokenCandidates);
+  return {
+    role: roleFromIdToken,
+    diagnostics: {
+      ...principalResult.diagnostics,
+      roleCandidateCount:
+        principalResult.diagnostics.roleCandidateCount + idTokenCandidates.length,
+      hadUnrecognizedRoleCandidates:
+        roleFromIdToken === null &&
+        (principalResult.diagnostics.hadUnrecognizedRoleCandidates ||
+          idTokenCandidates.length > 0),
+      resolutionSource: roleFromIdToken ? "idToken" : null,
+      idTokenRoleCandidateCount: idTokenCandidates.length,
     },
   };
 }
@@ -259,8 +347,7 @@ export function getCallerEmailFromPrincipal(p: ClientPrincipal): string | null {
 
 /** Resolve app role from Entra app role claims in client principal. */
 export function getCallerRole(req: HttpRequest): AppRole | null {
-  const p = decodeClientPrincipal(req);
-  return resolveAppRoleFromPrincipal(p).role;
+  return resolveAppRole(req).role;
 }
 
 /**

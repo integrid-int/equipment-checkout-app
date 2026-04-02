@@ -4,6 +4,7 @@
  */
 
 import {
+  resolveAppRole,
   decodeClientPrincipal,
   resolveAppRoleFromPrincipal,
   type ClientPrincipal,
@@ -129,6 +130,48 @@ const d = resolveAppRoleFromPrincipal(unrec);
 assert(d.role === null, "unrecognized role value");
 assert(d.diagnostics.hadUnrecognizedRoleCandidates, "should set hadUnrecognizedRoleCandidates");
 assert(d.diagnostics.roleCandidateCount === 1, "candidate count");
+passed++;
+
+// Fallback: x-ms-client-principal has no role claims but forwarded AAD ID token does.
+const mkUnsignedJwt = (payload: Record<string, unknown>) => {
+  const enc = (o: Record<string, unknown>) =>
+    Buffer.from(JSON.stringify(o))
+      .toString("base64")
+      .replace(/=/g, "")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_");
+  return `${enc({ alg: "none", typ: "JWT" })}.${enc(payload)}.`;
+};
+
+const principalWithoutRoles = {
+  userDetails: "u@x.com",
+  userRoles: ["authenticated", "anonymous"],
+  claims: [{ typ: "name", val: "User Example" }],
+};
+const reqWithIdTokenFallback = {
+  headers: {
+    get: (name: string) => {
+      if (name === "x-ms-client-principal") {
+        return Buffer.from(JSON.stringify(principalWithoutRoles)).toString("base64");
+      }
+      if (name === "x-ms-token-aad-id-token") {
+        return mkUnsignedJwt({
+          roles: ["admin"],
+          aud: "test-audience",
+        });
+      }
+      return null;
+    },
+  },
+} as unknown as import("@azure/functions").HttpRequest;
+
+const fallbackResolved = resolveAppRole(reqWithIdTokenFallback);
+assert(fallbackResolved.role === "admin", "id token fallback should resolve admin role");
+assert(fallbackResolved.diagnostics.resolutionSource === "idToken", "resolution source should be idToken");
+assert(
+  fallbackResolved.diagnostics.idTokenRoleCandidateCount > 0,
+  "id token fallback should contribute candidates"
+);
 passed++;
 
 console.log(`OK: ${passed} role-parsing checks passed`);
