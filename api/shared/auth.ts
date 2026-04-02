@@ -89,12 +89,21 @@ function claimTypeIsRoleClaim(typ: string): boolean {
   if (t === "roles" || t === "role") return true;
   if (
     t === "http://schemas.microsoft.com/ws/2008/06/identity/claims/role" ||
-    t === "https://schemas.microsoft.com/ws/2008/06/identity/claims/role"
+    t === "https://schemas.microsoft.com/ws/2008/06/identity/claims/role" ||
+    t === "http://schemas.microsoft.com/ws/2008/06/identity/claims/roles" ||
+    t === "https://schemas.microsoft.com/ws/2008/06/identity/claims/roles"
   ) {
     return true;
   }
-  // Some gateways normalize URI scheme or casing; keep a narrow suffix match.
-  if (t.endsWith("/ws/2008/06/identity/claims/role")) return true;
+  // Some gateways normalize URI scheme/casing or use plural claim names.
+  if (
+    t.endsWith("/ws/2008/06/identity/claims/role") ||
+    t.endsWith("/ws/2008/06/identity/claims/roles") ||
+    t.endsWith("/identity/claims/role") ||
+    t.endsWith("/identity/claims/roles")
+  ) {
+    return true;
+  }
   return false;
 }
 

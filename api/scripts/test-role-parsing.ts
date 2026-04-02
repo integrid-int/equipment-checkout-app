@@ -46,6 +46,19 @@ const cases: Array<{ name: string; p: ClientPrincipal; expectRole: "admin" | "te
     expectRole: "technician",
   },
   {
+    name: "plural roles URI variant",
+    p: {
+      userDetails: "u@x.com",
+      claims: [
+        {
+          typ: "https://schemas.microsoft.com/ws/2008/06/identity/claims/roles",
+          val: "admin",
+        },
+      ],
+    },
+    expectRole: "admin",
+  },
+  {
     name: "http scheme with uppercase HTTP in URI",
     p: {
       userDetails: "u@x.com",
