@@ -44,9 +44,20 @@ const ROLE_ALIASES: Record<string, AppRole> = {
   receiver: "receiver",
   receivers: "receiver",
 };
+const ROLE_NOISE = new Set(["authenticated", "anonymous"]);
 
 function normalizeClaimType(typ: string): string {
   return typ.trim().toLowerCase();
+}
+
+function isNoiseRoleCandidate(value: string): boolean {
+  return ROLE_NOISE.has(value.trim().toLowerCase());
+}
+
+function filterRoleCandidates(candidates: string[]): string[] {
+  return candidates
+    .map((c) => c.trim())
+    .filter((c) => c.length > 0 && !isNoiseRoleCandidate(c));
 }
 
 function coerceClaims(rawClaims: unknown): Array<{ typ: string; val: unknown }> {
@@ -226,9 +237,7 @@ export function resolveAppRoleFromPrincipal(p: ClientPrincipal | null): {
     20
   );
 
-  const rawFromUserRoles = (p.userRoles ?? []).filter(
-    (r) => r && r !== "authenticated" && r !== "anonymous"
-  );
+  const rawFromUserRoles = filterRoleCandidates(p.userRoles ?? []);
 
   const rawFromClaims: string[] = [];
   for (const c of p.claims ?? []) {
@@ -349,7 +358,7 @@ function extractRawRoleCandidatesFromUnknown(
 function extractRawPrincipalRoleCandidates(req: HttpRequest): string[] {
   const raw = decodeClientPrincipalRaw(req);
   if (!raw) return [];
-  return extractRawRoleCandidatesFromUnknown(raw);
+  return filterRoleCandidates(extractRawRoleCandidatesFromUnknown(raw));
 }
 
 function decodeTokenPayload(
@@ -381,7 +390,7 @@ function decodeTokenPayload(
 }
 
 function resolveRoleFromCandidates(candidates: string[]): AppRole | null {
-  for (const rawRole of candidates) {
+  for (const rawRole of filterRoleCandidates(candidates)) {
     if (typeof rawRole !== "string") continue;
     const exact = normalizeRole(rawRole);
     if (exact) return exact;
@@ -402,13 +411,7 @@ function extractTokenRoleCandidates(
 ): string[] {
   const payload = decodeTokenPayload(req, headerName);
   if (!payload) return [];
-
-  const out: string[] = [];
-  for (const [key, value] of Object.entries(payload)) {
-    if (!claimTypeIsRoleClaim(key)) continue;
-    out.push(...extractRoleStringsFromClaimValue(value));
-  }
-  return out;
+  return filterRoleCandidates(extractRawRoleCandidatesFromUnknown(payload));
 }
 
 /**
@@ -531,7 +534,27 @@ function firstForwardedValue(v: string | null): string | null {
   return first || null;
 }
 
+function originFromUrlLikeValue(value: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    return new URL(trimmed).origin;
+  } catch {
+    return null;
+  }
+}
+
 function buildAuthMeUrl(req: HttpRequest): string | null {
+  const originalUrlOrigin = originFromUrlLikeValue(req.headers.get("x-ms-original-url"));
+  if (originalUrlOrigin) return `${originalUrlOrigin}/.auth/me`;
+
+  const originHeader = originFromUrlLikeValue(req.headers.get("origin"));
+  if (originHeader) return `${originHeader}/.auth/me`;
+
+  const refererOrigin = originFromUrlLikeValue(req.headers.get("referer"));
+  if (refererOrigin) return `${refererOrigin}/.auth/me`;
+
   const hostFromHeaders =
     firstForwardedValue(req.headers.get("x-forwarded-host")) ??
     firstForwardedValue(req.headers.get("host"));

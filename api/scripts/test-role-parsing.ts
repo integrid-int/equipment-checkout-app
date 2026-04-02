@@ -343,6 +343,30 @@ async function runAsyncChecks() {
     assert(authMeResolved.diagnostics.authMeAttempted, "authMe fallback should mark attempted");
     assert(authMeResolved.diagnostics.authMeFetchStatus === "ok", "authMe fallback status should be ok");
     passed++;
+
+    const reqWithOriginHeaderFallback = {
+      headers: {
+        get: (name: string) => {
+          if (name === "x-ms-client-principal") {
+            return Buffer.from(JSON.stringify(principalWithoutRoles)).toString("base64");
+          }
+          if (name === "origin") return "https://origin.example.test";
+          if (name === "cookie") return "StaticWebAppsAuthCookie=test";
+          return null;
+        },
+      },
+      url: "https://api.example.test/api/me",
+    } as unknown as import("@azure/functions").HttpRequest;
+    const authMeResolvedFromOrigin = await resolveAppRoleWithFallback(reqWithOriginHeaderFallback);
+    assert(
+      authMeResolvedFromOrigin.diagnostics.authMeAttempted,
+      "authMe fallback should attempt fetch using origin header"
+    );
+    assert(
+      authMeResolvedFromOrigin.diagnostics.authMeFetchStatus === "ok",
+      "authMe fallback should succeed using origin header"
+    );
+    passed++;
   } finally {
     globalThis.fetch = originalFetch;
   }
