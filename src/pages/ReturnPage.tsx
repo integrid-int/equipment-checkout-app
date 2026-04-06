@@ -1,35 +1,46 @@
 /**
- * ReturnPage — technician returns unused items back to stock.
+ * ReturnPage — technician returns items against the active job ticket.
  *
- * Flow:
- *  1. Optionally link to a ticket (for audit trail)
- *  2. Scan items being returned
- *  3. Confirm quantities
- *  4. Submit → increments stock + notes on ticket
+ * Mirrors PullKit behavior:
+ *  1. Active ticket is required
+ *  2. Serialized items require one serial capture per unit
+ *  3. Confirm return is blocked until serialized lines are valid
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import BarcodeScanner from "../components/BarcodeScanner";
-import type { HaloItem, HaloTicket, PullEntry } from "../types/halo";
+import type { HaloItem, PullEntry } from "../types/halo";
 import { useAuth } from "../hooks/useAuth";
+import { useActiveJob } from "../context/ActiveJobContext";
+
+type Modal =
+  | { type: "serial"; item: HaloItem }
+  | { type: "quantity"; item: HaloItem }
+  | null;
+
+interface SerialScanSession {
+  item: HaloItem;
+  requiredCount: number;
+  scannedSerials: string[];
+}
 
 export default function ReturnPage() {
+  const navigate = useNavigate();
   const { email } = useAuth();
+  const { ticket, clearJob } = useActiveJob();
 
   const [scanning, setScanning] = useState(false);
   const [returnList, setReturnList] = useState<PullEntry[]>([]);
   const [lookingUp, setLookingUp] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
 
-  // Optional ticket link
-  const [ticketQuery, setTicketQuery] = useState("");
-  const [ticketSearching, setTicketSearching] = useState(false);
-  const [ticketResults, setTicketResults] = useState<HaloTicket[]>([]);
-  const [linkedTicket, setLinkedTicket] = useState<HaloTicket | null>(null);
-
-  // Modal for quantity confirmation
-  const [qtyModal, setQtyModal] = useState<{ item: HaloItem; serial?: string } | null>(null);
+  const [modal, setModal] = useState<Modal>(null);
   const [qtyInput, setQtyInput] = useState("1");
+  const [serialInput, setSerialInput] = useState("");
+  const [serialSession, setSerialSession] = useState<SerialScanSession | null>(null);
+  const [serialScannerOpen, setSerialScannerOpen] = useState(false);
+  const serialCommitInFlight = useRef(false);
 
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
@@ -37,6 +48,31 @@ export default function ReturnPage() {
   function showToast(msg: string, type: "success" | "error" = "success") {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
+  }
+
+  function addReturnEntry(entry: PullEntry) {
+    setReturnList((prev) => {
+      const serial = entry.serialNumber?.trim();
+      if (serial) {
+        const exists = prev.some(
+          (e) =>
+            e.item.id === entry.item.id &&
+            e.serialNumber?.trim().toLowerCase() === serial.toLowerCase()
+        );
+        if (exists) return prev;
+        return [...prev, entry];
+      }
+
+      const existing = prev.find((e) => e.item.id === entry.item.id && !e.serialNumber);
+      if (existing) {
+        return prev.map((e) =>
+          e.item.id === entry.item.id && !e.serialNumber
+            ? { ...e, quantity: e.quantity + entry.quantity }
+            : e
+        );
+      }
+      return [...prev, entry];
+    });
   }
 
   const lookupItem = useCallback(async (code: string) => {
@@ -54,12 +90,11 @@ export default function ReturnPage() {
 
       const item = data.items[0];
       if (item.serialized) {
-        // Serialized: auto-add with qty 1 and the scanned serial
-        setReturnList((prev) => [...prev, { item, quantity: 1, serialNumber: item.serialnumber ?? code }]);
-        showToast(`Added: ${item.name}`);
+        setQtyInput("1");
+        setModal({ type: "serial", item });
       } else {
         setQtyInput("1");
-        setQtyModal({ item });
+        setModal({ type: "quantity", item });
       }
     } catch (err) {
       setLookupError((err as Error).message);
@@ -68,45 +103,102 @@ export default function ReturnPage() {
     }
   }, []);
 
-  function confirmQty() {
-    if (!qtyModal) return;
+  function confirmSerialQty() {
+    if (!modal || modal.type !== "serial") return;
     const qty = parseInt(qtyInput, 10);
-    if (!qty || qty < 1) return;
-    setReturnList((prev) => {
-      const existing = prev.find((e) => e.item.id === qtyModal.item.id && !e.serialNumber);
-      if (existing) {
-        return prev.map((e) =>
-          e.item.id === qtyModal.item.id && !e.serialNumber ? { ...e, quantity: e.quantity + qty } : e
-        );
-      }
-      return [...prev, { item: qtyModal.item, quantity: qty }];
+    if (!qty || qty < 1) {
+      showToast("Enter a valid quantity", "error");
+      return;
+    }
+    setSerialSession({
+      item: modal.item,
+      requiredCount: qty,
+      scannedSerials: [],
     });
-    showToast(`Added: ${qtyModal.item.name} × ${qty}`);
-    setQtyModal(null);
+    setSerialScannerOpen(true);
+    setModal(null);
   }
 
-  async function searchTickets() {
-    if (!ticketQuery.trim()) return;
-    setTicketSearching(true);
-    setTicketResults([]);
-    try {
-      const res = await fetch(`/api/tickets?search=${encodeURIComponent(ticketQuery)}`);
-      const data = (await res.json()) as { tickets: HaloTicket[] };
-      setTicketResults(data.tickets);
-    } finally {
-      setTicketSearching(false);
-    }
+  function handleSerializedBarcode(code: string) {
+    if (serialCommitInFlight.current) return;
+    serialCommitInFlight.current = true;
+    setSerialSession((session) => {
+      if (!session) return session;
+
+      const serial = code.trim();
+      if (!serial) return session;
+      if (session.scannedSerials.includes(serial)) {
+        showToast(`Serial already scanned: ${serial}`, "error");
+        return session;
+      }
+      if (returnList.some((e) => e.item.id === session.item.id && e.serialNumber === serial)) {
+        showToast(`Serial already in return list: ${serial}`, "error");
+        return session;
+      }
+
+      addReturnEntry({ item: session.item, quantity: 1, serialNumber: serial });
+      setSerialInput("");
+
+      const nextSerials = [...session.scannedSerials, serial];
+      if (nextSerials.length >= session.requiredCount) {
+        setSerialScannerOpen(false);
+        showToast(
+          `Added return serials: ${session.item.name} (${nextSerials.length})`
+        );
+        return null;
+      }
+
+      return { ...session, scannedSerials: nextSerials };
+    });
+    setTimeout(() => {
+      serialCommitInFlight.current = false;
+    }, 0);
+  }
+
+  function confirmQty() {
+    if (!modal || modal.type !== "quantity") return;
+    const qty = parseInt(qtyInput, 10);
+    if (!qty || qty < 1) return;
+    addReturnEntry({ item: modal.item, quantity: qty });
+    showToast(`Added: ${modal.item.name} × ${qty}`);
+    setModal(null);
+  }
+
+  function hasInvalidSerializedEntries(): boolean {
+    return returnList.some(
+      (e) => e.item.serialized && (!e.serialNumber?.trim() || e.quantity !== 1)
+    );
+  }
+
+  function convertSerializedLineToScanSession(entry: PullEntry, index: number) {
+    if (entry.quantity < 1 || entry.serialNumber) return;
+    setSerialSession({
+      item: entry.item,
+      requiredCount: entry.quantity,
+      scannedSerials: [],
+    });
+    setReturnList((prev) => prev.filter((_, i) => i !== index));
+    setSerialScannerOpen(true);
   }
 
   async function handleSubmitReturn() {
-    if (returnList.length === 0) return;
+    if (!ticket || returnList.length === 0) return;
+    if (serialSession) {
+      showToast("Finish scanning serialized return items before confirming", "error");
+      return;
+    }
+    if (hasInvalidSerializedEntries()) {
+      showToast("Serialized returns require serial scans for each quantity", "error");
+      return;
+    }
+
     setSubmitting(true);
     try {
       const res = await fetch("/api/return", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ticketId: linkedTicket?.id,
+          ticketId: ticket.id,
           returnedByEmail: email,
           entries: returnList.map((e) => ({
             itemId: e.item.id,
@@ -117,12 +209,17 @@ export default function ReturnPage() {
         }),
       });
 
-      const data = (await res.json()) as { success?: boolean; error?: string };
+      const data = (await res.json()) as { success?: boolean; error?: string; errors?: string[] };
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
 
-      showToast(`${returnList.length} item${returnList.length !== 1 ? "s" : ""} returned to stock`);
-      setReturnList([]);
-      setLinkedTicket(null);
+      if (data.errors?.length) {
+        showToast(`Returned with ${data.errors.length} error(s)`, "error");
+      } else {
+        showToast(`Returned for #${ticket.id}`);
+      }
+
+      clearJob();
+      navigate("/job");
     } catch (err) {
       showToast((err as Error).message, "error");
     } finally {
@@ -132,45 +229,106 @@ export default function ReturnPage() {
 
   const totalItems = returnList.reduce((s, e) => s + e.quantity, 0);
 
+  if (!ticket) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 px-6 text-center">
+        <span className="text-5xl">⟲</span>
+        <p className="font-semibold text-gray-700">No active job</p>
+        <p className="text-gray-400 text-sm">Go to the Job tab to select a ticket before returning items.</p>
+        <button onClick={() => navigate("/job")} className="btn-primary mt-2">Find a Job</button>
+      </div>
+    );
+  }
+
   return (
     <div className="px-4 pt-4 pb-28 flex flex-col gap-4">
+      <div className="bg-amber-50 border border-amber-100 rounded-2xl px-4 py-3">
+        <p className="text-xs text-amber-600 font-medium">Returning against</p>
+        <p className="font-bold text-amber-900">#{ticket.id} — {ticket.summary}</p>
+        <p className="text-amber-600 text-sm">{ticket.client_name}</p>
+      </div>
 
-      {/* Scan button */}
       <button
         onClick={() => setScanning(true)}
-        disabled={lookingUp}
-        className="w-full bg-amber-500 hover:bg-amber-600 active:scale-95 text-white rounded-2xl py-5 flex flex-col items-center gap-1.5 shadow-md transition-all"
+        disabled={lookingUp || Boolean(serialSession)}
+        className="w-full bg-amber-500 hover:bg-amber-600 active:scale-95 text-white rounded-2xl py-5 flex flex-col items-center gap-1.5 shadow-md transition-all disabled:opacity-60"
       >
         <span className="text-3xl">⟲</span>
         <span className="font-semibold">{lookingUp ? "Looking up item…" : "Scan Item to Return"}</span>
         <span className="text-amber-100 text-xs">Scan barcode or serial number</span>
       </button>
 
-      {/* Manual search */}
       <form
-        onSubmit={(e) => { e.preventDefault(); const input = e.currentTarget.elements.namedItem("q"); if (input instanceof HTMLInputElement) { const q = input.value.trim(); if (q) lookupItem(q); } }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          const input = e.currentTarget.elements.namedItem("q");
+          if (input instanceof HTMLInputElement) {
+            const q = input.value.trim();
+            if (q) lookupItem(q);
+          }
+        }}
         className="flex gap-2"
       >
-        <input name="q" type="search" className="input flex-1" placeholder="Search item by name…" />
-        <button type="submit" className="btn-secondary px-4">Add</button>
+        <input
+          name="q"
+          type="search"
+          className="input flex-1"
+          placeholder="Search item by name…"
+          disabled={Boolean(serialSession)}
+        />
+        <button type="submit" className="btn-secondary px-4" disabled={Boolean(serialSession)}>Add</button>
       </form>
 
       {lookupError && (
         <p className="text-red-600 text-sm bg-red-50 rounded-lg px-3 py-2">{lookupError}</p>
       )}
 
-      {/* Return list */}
       {returnList.length > 0 && (
         <div className="flex flex-col gap-2">
           <p className="text-sm font-semibold text-gray-700">Returning — {totalItems} item{totalItems !== 1 ? "s" : ""}</p>
           {returnList.map((entry, i) => (
-            <div key={i} className="bg-white border border-gray-100 rounded-2xl p-3.5 flex items-center gap-3 shadow-sm">
+            <div key={`${entry.item.id}-${entry.serialNumber ?? "bulk"}-${i}`} className="bg-white border border-gray-100 rounded-2xl p-3.5 flex items-center gap-3 shadow-sm">
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-gray-900 truncate">{entry.item.name}</p>
-                {entry.serialNumber
-                  ? <p className="text-xs text-gray-400 font-mono">SN: {entry.serialNumber}</p>
-                  : <p className="text-xs text-gray-400">Qty: {entry.quantity}</p>
-                }
+                {entry.serialNumber ? (
+                  <p className="text-xs text-gray-400 font-mono">SN: {entry.serialNumber}</p>
+                ) : entry.item.serialized ? (
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded px-2 py-1">
+                      Serial scans required ({entry.quantity})
+                    </span>
+                    <button
+                      onClick={() => convertSerializedLineToScanSession(entry, i)}
+                      className="text-xs text-amber-700"
+                    >
+                      Scan now
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 mt-1">
+                    <button
+                      onClick={() =>
+                        setReturnList((prev) =>
+                          prev.map((e, j) =>
+                            j === i ? { ...e, quantity: Math.max(1, e.quantity - 1) } : e
+                          )
+                        )
+                      }
+                      className="w-7 h-7 rounded-lg bg-gray-100 text-gray-600 font-bold flex items-center justify-center"
+                    >−</button>
+                    <span className="text-sm font-semibold w-6 text-center">{entry.quantity}</span>
+                    <button
+                      onClick={() =>
+                        setReturnList((prev) =>
+                          prev.map((e, j) =>
+                            j === i ? { ...e, quantity: e.quantity + 1 } : e
+                          )
+                        )
+                      }
+                      className="w-7 h-7 rounded-lg bg-gray-100 text-gray-600 font-bold flex items-center justify-center"
+                    >+</button>
+                  </div>
+                )}
               </div>
               <button
                 onClick={() => setReturnList((prev) => prev.filter((_, j) => j !== i))}
@@ -181,48 +339,10 @@ export default function ReturnPage() {
         </div>
       )}
 
-      {/* Optional ticket link */}
-      {returnList.length > 0 && (
-        <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
-          <p className="text-sm font-semibold text-gray-700 mb-2">
-            Link to ticket <span className="font-normal text-gray-400">(optional — for audit trail)</span>
-          </p>
-          {linkedTicket ? (
-            <div className="flex items-center gap-2">
-              <div className="flex-1 bg-brand-50 rounded-lg px-3 py-2">
-                <p className="text-sm font-semibold text-brand-900">#{linkedTicket.id} — {linkedTicket.summary}</p>
-                <p className="text-xs text-brand-500">{linkedTicket.client_name}</p>
-              </div>
-              <button onClick={() => setLinkedTicket(null)} className="text-gray-400 text-sm">Clear</button>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              <div className="flex gap-2">
-                <input
-                  type="search"
-                  value={ticketQuery}
-                  onChange={(e) => setTicketQuery(e.target.value)}
-                  className="input flex-1"
-                  placeholder="Ticket # or name…"
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); searchTickets(); } }}
-                />
-                <button onClick={searchTickets} className="btn-secondary px-3" disabled={ticketSearching}>
-                  {ticketSearching ? "…" : "Find"}
-                </button>
-              </div>
-              {ticketResults.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => { setLinkedTicket(t); setTicketResults([]); setTicketQuery(""); }}
-                  className="text-left bg-gray-50 rounded-lg px-3 py-2 text-sm"
-                >
-                  <span className="font-semibold">#{t.id}</span> — {t.summary}
-                  <span className="text-gray-400 ml-1">({t.client_name})</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+      {hasInvalidSerializedEntries() && !serialSession && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+          One or more serialized return items still need scanned serials before return can be confirmed.
+        </p>
       )}
 
       {returnList.length === 0 && (
@@ -232,7 +352,6 @@ export default function ReturnPage() {
         </div>
       )}
 
-      {/* Submit footer */}
       {returnList.length > 0 && (
         <div className="fixed bottom-16 inset-x-0 px-4 pb-2 bg-gray-50/95 backdrop-blur border-t border-gray-100">
           <button
@@ -245,14 +364,95 @@ export default function ReturnPage() {
         </div>
       )}
 
-      {scanning && <BarcodeScanner onResult={(code) => { setScanning(false); lookupItem(code); }} onClose={() => setScanning(false)} />}
+      {scanning && (
+        <BarcodeScanner
+          onResult={(code) => {
+            setScanning(false);
+            lookupItem(code);
+          }}
+          onClose={() => setScanning(false)}
+        />
+      )}
 
-      {/* Quantity modal */}
-      {qtyModal && (
+      {serialScannerOpen && serialSession && (
+        <BarcodeScanner
+          onResult={handleSerializedBarcode}
+          onClose={() => {
+            setSerialScannerOpen(false);
+            showToast("Serial scan canceled", "error");
+          }}
+          title={`Scan Return Serials (${serialSession.scannedSerials.length}/${serialSession.requiredCount})`}
+          helperText={`Scan ${serialSession.requiredCount - serialSession.scannedSerials.length} more serial barcode${serialSession.requiredCount - serialSession.scannedSerials.length !== 1 ? "s" : ""}`}
+        />
+      )}
+
+      {!serialScannerOpen && serialSession && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
+          <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl p-6 pb-safe-bottom shadow-xl">
+            <h2 className="text-xl font-bold mb-1">Enter Scanned Return Serial</h2>
+            <p className="text-gray-500 text-sm mb-1">{serialSession.item.name}</p>
+            <p className="text-xs text-gray-400 mb-4">
+              {serialSession.scannedSerials.length}/{serialSession.requiredCount} captured
+            </p>
+            <label className="label">Serial number</label>
+            <input
+              type="text"
+              value={serialInput}
+              onChange={(e) => setSerialInput(e.target.value)}
+              className="input mb-4"
+              placeholder="Scan or type serial barcode..."
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => setSerialScannerOpen(true)}
+                className="btn-secondary flex-1"
+              >
+                Use Camera
+              </button>
+              <button
+                onClick={() => {
+                  const serial = serialInput.trim();
+                  if (!serial) return;
+                  handleSerializedBarcode(serial);
+                  setSerialInput("");
+                }}
+                className="btn-primary flex-1"
+              >
+                Add Scanned Serial
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modal?.type === "serial" && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
+          <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl p-6 pb-safe-bottom shadow-xl">
+            <h2 className="text-xl font-bold mb-1">Serialized Return Item</h2>
+            <p className="text-gray-500 text-sm mb-4">{modal.item.name}</p>
+            <label className="label">How many serialized units are you returning?</label>
+            <input
+              type="number"
+              min={1}
+              value={qtyInput}
+              onChange={(e) => setQtyInput(e.target.value)}
+              className="input mb-4 text-2xl text-center font-bold"
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <button onClick={() => setModal(null)} className="btn-secondary flex-1">Cancel</button>
+              <button onClick={confirmSerialQty} className="btn-primary flex-1">Start Serial Scanning</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modal?.type === "quantity" && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
           <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl p-6 pb-safe-bottom shadow-xl">
             <h2 className="text-xl font-bold mb-1">Return Quantity</h2>
-            <p className="text-gray-500 text-sm mb-4">{qtyModal.item.name}</p>
+            <p className="text-gray-500 text-sm mb-4">{modal.item.name}</p>
             <label className="label">How many are you returning?</label>
             <input
               type="number"
@@ -263,11 +463,56 @@ export default function ReturnPage() {
               autoFocus
             />
             <div className="flex gap-2">
-              <button onClick={() => setQtyModal(null)} className="btn-secondary flex-1">Cancel</button>
+              <button onClick={() => setModal(null)} className="btn-secondary flex-1">Cancel</button>
               <button onClick={confirmQty} className="w-full mt-2 bg-amber-500 text-white font-semibold rounded-lg py-3 flex-1">
                 Add to Return List
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {serialSession && (
+        <div className="fixed inset-x-4 bottom-24 z-40 bg-white border border-gray-200 rounded-2xl p-4 shadow-lg">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-semibold text-gray-800 truncate">{serialSession.item.name}</p>
+            <span className="text-xs font-medium text-amber-600">
+              {serialSession.scannedSerials.length}/{serialSession.requiredCount}
+            </span>
+          </div>
+          <p className="text-xs text-gray-500 mb-3">
+            Serialized return requires one scanned barcode per unit.
+          </p>
+          {serialSession.scannedSerials.length > 0 && (
+            <div className="max-h-24 overflow-y-auto mb-3 space-y-1">
+              {serialSession.scannedSerials.map((sn) => (
+                <p key={sn} className="text-xs font-mono text-gray-500 bg-gray-50 rounded px-2 py-1 truncate">
+                  {sn}
+                </p>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                setSerialScannerOpen(true);
+                setSerialInput("");
+              }}
+              className="btn-secondary flex-1"
+            >
+              Continue Scanning
+            </button>
+            <button
+              onClick={() => {
+                setSerialSession(null);
+                setSerialScannerOpen(false);
+                setSerialInput("");
+                showToast("Serialized return session cleared", "error");
+              }}
+              className="btn-secondary flex-1"
+            >
+              Cancel Session
+            </button>
           </div>
         </div>
       )}

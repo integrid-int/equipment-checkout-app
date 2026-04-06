@@ -29,6 +29,14 @@ interface ReturnBody {
   entries: ReturnEntry[];
 }
 
+interface HaloReturnItem {
+  id: number;
+  count?: number;
+  quantity_in_stock?: number;
+  serialized?: boolean;
+  serialise_only_one?: boolean;
+}
+
 app.http("return", {
   methods: ["POST"],
   authLevel: "anonymous",
@@ -58,10 +66,24 @@ app.http("return", {
         }
 
         try {
-          const itemData = await haloGet<{ id: number; count: number }>(
+          const itemData = await haloGet<HaloReturnItem>(
             `/Item/${entry.itemId}`
           );
-          const newCount = (itemData.count ?? 0) + entry.quantity;
+          const serialized = Boolean(itemData.serialized ?? itemData.serialise_only_one);
+          const serial = entry.serialNumber?.trim();
+          if (serialized) {
+            if (!serial) {
+              errors.push(`Serialized return item "${entry.itemName}" requires a scanned serial number`);
+              continue;
+            }
+            if (entry.quantity !== 1) {
+              errors.push(`Serialized return item "${entry.itemName}" must be submitted as one unit per serial`);
+              continue;
+            }
+          }
+
+          const currentCount = Number(itemData.count ?? itemData.quantity_in_stock ?? 0);
+          const newCount = currentCount + entry.quantity;
           await haloPost("/Item", [{ id: entry.itemId, count: newCount }]);
           successIndices.push(i);
         } catch (err) {
