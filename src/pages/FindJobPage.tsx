@@ -1,7 +1,7 @@
 /**
  * FindJobPage — Step 1 of the pull kit workflow.
  * Technician scans or searches for their Halo ticket/job,
- * then taps "Start Pull" to begin scanning items.
+ * then chooses whether to continue with Pull or Return.
  */
 
 import { useState, useCallback } from "react";
@@ -119,6 +119,10 @@ export default function FindJobPage() {
     navigate("/pull");
   }
 
+  function handleStartReturn() {
+    navigate("/return");
+  }
+
   return (
     <div className="px-4 pt-5 pb-24 flex flex-col gap-5">
 
@@ -135,13 +139,18 @@ export default function FindJobPage() {
               {pullList.length} item{pullList.length !== 1 ? "s" : ""} in pull list
             </p>
           )}
-          <div className="flex gap-2 mt-3">
-            <button onClick={handleStartPull} className="flex-1 bg-white text-brand-600 font-semibold rounded-lg py-2.5 text-sm">
-              Continue Pull →
+          <div className="grid grid-cols-2 gap-2 mt-3">
+            <button onClick={handleStartPull} className="bg-white text-brand-600 font-semibold rounded-lg py-2.5 text-sm">
+              Go to Pull →
             </button>
+            <button onClick={handleStartReturn} className="bg-white text-amber-700 font-semibold rounded-lg py-2.5 text-sm">
+              Go to Return →
+            </button>
+          </div>
+          <div className="mt-2">
             <button
               onClick={() => { if (confirm("Clear active job and pull list?")) clearJob(); }}
-              className="bg-white/20 text-white rounded-lg px-3 py-2.5 text-sm"
+              className="w-full bg-white/20 text-white rounded-lg px-3 py-2.5 text-sm"
             >
               Clear
             </button>
@@ -226,7 +235,7 @@ export default function FindJobPage() {
       {/* Ticket selected confirmation */}
       {activeTicket && results.length === 0 && !error && !searching && (
         <div className="text-center py-4 text-gray-400 text-sm">
-          Tap <strong>Continue Pull</strong> above to start scanning items.
+          Choose <strong>Pull</strong> or <strong>Return</strong> above to continue.
         </div>
       )}
 
