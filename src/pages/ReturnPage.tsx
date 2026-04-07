@@ -7,10 +7,10 @@
  *  3. Confirm return is blocked until serialized lines are valid
  */
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import BarcodeScanner from "../components/BarcodeScanner";
-import type { HaloItem, PullEntry } from "../types/halo";
+import type { HaloItem, PullEntry, TicketAttachedItem } from "../types/halo";
 import { useAuth } from "../hooks/useAuth";
 import { useActiveJob } from "../context/ActiveJobContext";
 
@@ -23,6 +23,27 @@ interface SerialScanSession {
   item: HaloItem;
   requiredCount: number;
   scannedSerials: string[];
+}
+
+function toReturnEntries(attachedItems: TicketAttachedItem[] | undefined): PullEntry[] {
+  if (!attachedItems?.length) return [];
+  return attachedItems
+    .filter((item) => item.itemId > 0 && item.quantity > 0)
+    .map((item) => ({
+      item: {
+        id: item.itemId,
+        name: item.itemName,
+        count:
+          typeof item.currentStock === "number"
+            ? Math.max(item.currentStock, item.quantity)
+            : item.quantity,
+        serialized: Boolean(item.serialized),
+        stockTracked: item.stockTracked,
+        serialnumber: item.serialNumber,
+      },
+      quantity: item.quantity,
+      serialNumber: item.serialNumber,
+    }));
 }
 
 export default function ReturnPage() {
@@ -41,6 +62,7 @@ export default function ReturnPage() {
   const [serialSession, setSerialSession] = useState<SerialScanSession | null>(null);
   const [serialScannerOpen, setSerialScannerOpen] = useState(false);
   const serialCommitInFlight = useRef(false);
+  const seededTicketIdRef = useRef<number | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
@@ -49,6 +71,17 @@ export default function ReturnPage() {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
   }
+
+  useEffect(() => {
+    if (!ticket) {
+      seededTicketIdRef.current = null;
+      setReturnList([]);
+      return;
+    }
+    if (seededTicketIdRef.current === ticket.id) return;
+    seededTicketIdRef.current = ticket.id;
+    setReturnList(toReturnEntries(ticket.attachedItems));
+  }, [ticket]);
 
   function addReturnEntry(entry: PullEntry) {
     setReturnList((prev) => {
@@ -337,6 +370,12 @@ export default function ReturnPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {ticket.attachedItems && ticket.attachedItems.length > 0 && (
+        <p className="text-xs text-gray-400">
+          Ticket includes {ticket.attachedItems.length} attached item{ticket.attachedItems.length !== 1 ? "s" : ""}. Confirm return quantities or add more scanned items.
+        </p>
       )}
 
       {hasInvalidSerializedEntries() && !serialSession && (
